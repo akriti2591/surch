@@ -1,7 +1,7 @@
 use crate::theme::SurchTheme;
 use gpui::*;
-use gpui_component::scroll::ScrollableElement;
 use std::path::PathBuf;
+use std::rc::Rc;
 use surch_core::channel::ChannelAction;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
@@ -20,12 +20,12 @@ fn syntect_color_to_hsla(color: syntect::highlighting::Color) -> gpui::Hsla {
 pub struct PreviewPanel {
     file_path: Option<PathBuf>,
     file_content: Vec<String>,
-    highlighted_lines: Vec<Vec<(Hsla, String)>>,
+    highlighted_lines: Rc<Vec<Vec<(Hsla, String)>>>,
     focus_line: Option<usize>,
     match_pattern: Option<String>,
     actions: Vec<ChannelAction>,
     show_actions_menu: bool,
-    scroll_handle: ScrollHandle,
+    scroll_handle: UniformListScrollHandle,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
@@ -36,12 +36,12 @@ impl PreviewPanel {
         Self {
             file_path: None,
             file_content: Vec::new(),
-            highlighted_lines: Vec::new(),
+            highlighted_lines: Rc::new(Vec::new()),
             focus_line: None,
             match_pattern: None,
             actions: Vec::new(),
             show_actions_menu: false,
-            scroll_handle: ScrollHandle::new(),
+            scroll_handle: UniformListScrollHandle::default(),
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
             on_action_selected: None,
@@ -53,14 +53,17 @@ impl PreviewPanel {
             Ok(content) => {
                 let raw_lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
 
-                // Determine syntax from file extension
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                // Determine syntax — try filename, extension, then first line
                 let syntax = self
                     .syntax_set
-                    .find_syntax_by_extension(ext)
+                    .find_syntax_for_file(&path)
+                    .ok()
+                    .flatten()
+                    .or_else(|| {
+                        raw_lines
+                            .first()
+                            .and_then(|line| self.syntax_set.find_syntax_by_first_line(line))
+                    })
                     .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
                 let theme = &self.theme_set.themes["base16-ocean.dark"];
                 let mut h = HighlightLines::new(syntax, theme);
@@ -80,15 +83,20 @@ impl PreviewPanel {
                 }
 
                 self.file_content = raw_lines;
-                self.highlighted_lines = highlighted;
+                self.highlighted_lines = Rc::new(highlighted);
                 self.file_path = Some(path);
                 self.focus_line = Some(focus_line);
                 self.match_pattern = pattern;
                 self.show_actions_menu = false;
+                // Scroll to the focus line (with some context lines above)
+                if focus_line > 0 {
+                    let scroll_to = focus_line.saturating_sub(6); // 5 lines of context above
+                    self.scroll_handle.scroll_to_item(scroll_to, ScrollStrategy::Top);
+                }
             }
             Err(_) => {
                 self.file_content = vec!["Error: Could not read file".to_string()];
-                self.highlighted_lines = vec![vec![(SurchTheme::text_primary(), "Error: Could not read file".to_string())]];
+                self.highlighted_lines = Rc::new(vec![vec![(SurchTheme::text_primary(), "Error: Could not read file".to_string())]]);
                 self.file_path = Some(path);
                 self.focus_line = None;
                 self.match_pattern = None;
@@ -221,68 +229,64 @@ impl PreviewPanel {
 
     fn render_code_lines(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         let focus = self.focus_line.unwrap_or(0);
+        let line_count = self.file_content.len();
+        let highlighted = self.highlighted_lines.clone();
 
-        let mut code_container = div()
-            .flex_1()
-            .overflow_y_scrollbar()
-            .w_full()
-            .font_family("SF Mono")
-            .text_size(px(12.0));
+        uniform_list("code-lines", line_count, move |range, _window, _cx| {
+            let mut items = Vec::new();
+            for i in range {
+                let line_num = i + 1;
+                let is_focus = line_num == focus;
 
-        for (i, _line) in self.file_content.iter().enumerate() {
-            let line_num = i + 1;
-            let is_focus = line_num == focus;
-
-            // Build the line content from highlighted spans
-            let line_content = if let Some(spans) = self.highlighted_lines.get(i) {
-                let mut span_container = div().flex_1().flex().flex_row().whitespace_nowrap();
-                for (color, text) in spans {
-                    span_container = span_container.child(
-                        div().text_color(*color).child(text.clone()),
-                    );
-                }
-                span_container
-            } else {
-                // Fallback to plain text
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_row()
-                    .whitespace_nowrap()
-                    .text_color(SurchTheme::text_primary())
-                    .child(self.file_content[i].clone())
-            };
-
-            let mut line_div = div()
-                .id(ElementId::Name(format!("line-{}", line_num).into()))
-                .w_full()
-                .flex()
-                .px_1()
-                // Line number gutter
-                .child(
+                let line_content = if let Some(spans) = highlighted.get(i) {
+                    let mut span_container =
+                        div().flex_1().flex().flex_row().whitespace_nowrap();
+                    for (color, text) in spans {
+                        span_container = span_container
+                            .child(div().text_color(*color).child(text.clone()));
+                    }
+                    span_container
+                } else {
                     div()
-                        .min_w(px(48.0))
-                        .text_color(SurchTheme::text_secondary())
-                        .text_size(px(11.0))
-                        .pr_2()
+                        .flex_1()
                         .flex()
-                        .justify_end()
-                        .child(format!("{}", line_num)),
-                )
-                // Line content with syntax highlighting
-                .child(line_content);
+                        .flex_row()
+                        .whitespace_nowrap()
+                        .text_color(SurchTheme::text_primary())
+                        .child("")
+                };
 
-            if is_focus {
-                line_div = line_div
-                    .bg(SurchTheme::bg_focus_line())
-                    .border_l_2()
-                    .border_color(hsla(0.15, 0.60, 0.50, 0.80));
+                let mut line_div = div()
+                    .w_full()
+                    .flex()
+                    .px_1()
+                    .child(
+                        div()
+                            .min_w(px(52.0))
+                            .text_color(SurchTheme::text_muted())
+                            .text_size(px(11.0))
+                            .pr(px(12.0))
+                            .flex()
+                            .justify_end()
+                            .child(format!("{}", line_num)),
+                    )
+                    .child(line_content);
+
+                if is_focus {
+                    line_div = line_div
+                        .bg(SurchTheme::bg_focus_line())
+                        .border_l_2()
+                        .border_color(hsla(0.15, 0.60, 0.50, 0.80));
+                }
+
+                items.push(line_div);
             }
-
-            code_container = code_container.child(line_div);
-        }
-
-        code_container
+            items
+        })
+        .flex_1()
+        .font_family("SF Mono")
+        .text_size(px(13.0))
+        .track_scroll(self.scroll_handle.clone())
     }
 }
 

@@ -254,8 +254,9 @@ impl SearchPanel {
         container = container.child(
             div()
                 .text_size(px(11.0))
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(SurchTheme::text_secondary())
-                .mb(px(2.0))
+                .mb(px(4.0))
                 .child(field.label.clone()),
         );
 
@@ -442,7 +443,9 @@ impl Render for SearchPanel {
             .flex()
             .flex_col()
             .w(px(340.0))
+            .flex_shrink_0()
             .h_full()
+            .overflow_hidden()
             .bg(SurchTheme::bg_secondary())
             .border_r_1()
             .border_color(SurchTheme::border());
@@ -481,22 +484,17 @@ impl Render for SearchPanel {
                 .child(self.render_status()),
         );
 
-        // Results list
-        let groups_snapshot: Vec<(usize, FileGroup)> = self
-            .file_groups
-            .iter()
-            .enumerate()
-            .map(|(i, g)| (i, g.clone()))
-            .collect();
-
+        // Results list — render directly without cloning
         let mut results_container = div()
             .flex_1()
             .overflow_y_scrollbar()
             .w_full();
 
-        for (group_idx, group) in &groups_snapshot {
+        let num_groups = self.file_groups.len();
+        for group_idx in 0..num_groups {
+            let group = &self.file_groups[group_idx];
             results_container =
-                results_container.child(self.render_file_group(*group_idx, group, cx));
+                results_container.child(self.render_file_group(group_idx, group, cx));
         }
 
         panel = panel.child(results_container);

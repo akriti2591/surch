@@ -17,8 +17,8 @@ impl Sidebar {
 
     fn icon_for_channel(channel: &ChannelMetadata) -> &'static str {
         match channel.id.as_str() {
-            "file_search" => "\u{1F50D}", // magnifying glass emoji
-            _ => "\u{2726}",              // four-pointed star fallback
+            "file_search" => "\u{1F50D}",
+            _ => "\u{2726}",
         }
     }
 }
@@ -28,8 +28,8 @@ impl Render for Sidebar {
         let mut sidebar = div()
             .flex()
             .flex_col()
-            .items_center()
             .w(px(44.0))
+            .flex_shrink_0()
             .h_full()
             .bg(SurchTheme::bg_sidebar())
             .border_r_1()
@@ -41,7 +41,18 @@ impl Render for Sidebar {
             let is_active = i == self.active_index;
             let icon_str = Self::icon_for_channel(channel);
 
-            let mut icon = div()
+            // Fixed-width row: 2px indicator bar + icon
+            let indicator = div()
+                .w(px(2.0))
+                .h(px(20.0))
+                .rounded(px(1.0))
+                .bg(if is_active {
+                    SurchTheme::accent()
+                } else {
+                    gpui::transparent_black()
+                });
+
+            let mut icon_box = div()
                 .id(ElementId::Name(format!("sidebar-icon-{}", i).into()))
                 .flex()
                 .items_center()
@@ -61,13 +72,20 @@ impl Render for Sidebar {
                 }));
 
             if is_active {
-                icon = icon
-                    .bg(SurchTheme::bg_hover())
-                    .border_l_2()
-                    .border_color(SurchTheme::accent());
+                icon_box = icon_box.bg(SurchTheme::bg_hover());
             }
 
-            sidebar = sidebar.child(icon);
+            // Wrap in a row so indicator doesn't change icon width
+            let row = div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .w_full()
+                .gap(px(2.0))
+                .child(indicator)
+                .child(icon_box);
+
+            sidebar = sidebar.child(row);
         }
 
         sidebar
