@@ -10,3 +10,4 @@ gpui = { workspace = true }
 gpui-component = { workspace = true }
 anyhow = { workspace = true }
 crossbeam-channel = { workspace = true }
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }

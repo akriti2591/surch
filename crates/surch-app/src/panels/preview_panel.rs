@@ -3,15 +3,31 @@ use gpui::*;
 use gpui_component::scroll::ScrollableElement;
 use std::path::PathBuf;
 use surch_core::channel::ChannelAction;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::ThemeSet;
+use syntect::parsing::SyntaxSet;
+
+fn syntect_color_to_hsla(color: syntect::highlighting::Color) -> gpui::Hsla {
+    gpui::rgba(
+        ((color.r as u32) << 24)
+            | ((color.g as u32) << 16)
+            | ((color.b as u32) << 8)
+            | (color.a as u32),
+    )
+    .into()
+}
 
 pub struct PreviewPanel {
     file_path: Option<PathBuf>,
     file_content: Vec<String>,
+    highlighted_lines: Vec<Vec<(Hsla, String)>>,
     focus_line: Option<usize>,
     match_pattern: Option<String>,
     actions: Vec<ChannelAction>,
     show_actions_menu: bool,
     scroll_handle: ScrollHandle,
+    syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
 }
 
@@ -20,11 +36,14 @@ impl PreviewPanel {
         Self {
             file_path: None,
             file_content: Vec::new(),
+            highlighted_lines: Vec::new(),
             focus_line: None,
             match_pattern: None,
             actions: Vec::new(),
             show_actions_menu: false,
             scroll_handle: ScrollHandle::new(),
+            syntax_set: SyntaxSet::load_defaults_newlines(),
+            theme_set: ThemeSet::load_defaults(),
             on_action_selected: None,
         }
     }
@@ -32,7 +51,36 @@ impl PreviewPanel {
     pub fn load_file(&mut self, path: PathBuf, focus_line: usize, pattern: Option<String>) {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
-                self.file_content = content.lines().map(|l| l.to_string()).collect();
+                let raw_lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+
+                // Determine syntax from file extension
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let syntax = self
+                    .syntax_set
+                    .find_syntax_by_extension(ext)
+                    .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+                let theme = &self.theme_set.themes["base16-ocean.dark"];
+                let mut h = HighlightLines::new(syntax, theme);
+
+                let mut highlighted = Vec::with_capacity(raw_lines.len());
+                for line in &raw_lines {
+                    let ranges = h
+                        .highlight_line(line, &self.syntax_set)
+                        .unwrap_or_default();
+                    let spans: Vec<(Hsla, String)> = ranges
+                        .into_iter()
+                        .map(|(style, text)| {
+                            (syntect_color_to_hsla(style.foreground), text.to_string())
+                        })
+                        .collect();
+                    highlighted.push(spans);
+                }
+
+                self.file_content = raw_lines;
+                self.highlighted_lines = highlighted;
                 self.file_path = Some(path);
                 self.focus_line = Some(focus_line);
                 self.match_pattern = pattern;
@@ -40,6 +88,7 @@ impl PreviewPanel {
             }
             Err(_) => {
                 self.file_content = vec!["Error: Could not read file".to_string()];
+                self.highlighted_lines = vec![vec![(SurchTheme::text_primary(), "Error: Could not read file".to_string())]];
                 self.file_path = Some(path);
                 self.focus_line = None;
                 self.match_pattern = None;
@@ -55,12 +104,20 @@ impl PreviewPanel {
         div()
             .flex_1()
             .flex()
+            .flex_col()
             .items_center()
             .justify_center()
             .child(
                 div()
-                    .text_size(px(14.0))
-                    .text_color(SurchTheme::text_secondary())
+                    .text_size(px(32.0))
+                    .text_color(SurchTheme::text_muted())
+                    .mb(px(8.0))
+                    .child("\u{1F50E}"),
+            )
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .text_color(SurchTheme::text_muted())
                     .child("Select a search result to preview"),
             )
     }
@@ -74,13 +131,14 @@ impl PreviewPanel {
 
         let mut header = div()
             .w_full()
-            .px_3()
-            .py_1()
+            .px(px(16.0))
+            .py(px(8.0))
             .flex()
             .items_center()
             .border_b_1()
             .border_color(SurchTheme::border())
-            .bg(SurchTheme::bg_secondary());
+            .bg(SurchTheme::bg_secondary())
+            .flex_shrink_0();
 
         // File path
         header = header.child(
@@ -98,13 +156,15 @@ impl PreviewPanel {
             header = header.child(
                 div()
                     .id("open-in-button")
-                    .px_2()
-                    .py(px(2.0))
+                    .px(px(10.0))
+                    .py(px(4.0))
                     .rounded(px(4.0))
                     .cursor_pointer()
                     .bg(SurchTheme::accent())
+                    .hover(|s| s.bg(SurchTheme::accent_hover()))
                     .text_size(px(11.0))
-                    .text_color(SurchTheme::text_primary())
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(SurchTheme::text_heading())
                     .child("Open in...")
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.show_actions_menu = !this.show_actions_menu;
@@ -121,13 +181,13 @@ impl PreviewPanel {
             .absolute()
             .top(px(28.0))
             .right(px(8.0))
-            .min_w(px(180.0))
-            .bg(SurchTheme::bg_secondary())
+            .min_w(px(200.0))
+            .bg(SurchTheme::bg_surface())
             .border_1()
             .border_color(SurchTheme::border())
-            .rounded(px(6.0))
+            .rounded(px(8.0))
             .shadow_lg()
-            .py_1();
+            .py(px(4.0));
 
         for action in &self.actions {
             let action_id = action.id.clone();
@@ -137,11 +197,14 @@ impl PreviewPanel {
                 div()
                     .id(ElementId::Name(format!("action-{}", action_id).into()))
                     .w_full()
-                    .px_3()
-                    .py(px(4.0))
+                    .px(px(12.0))
+                    .py(px(6.0))
+                    .mx(px(4.0))
+                    .rounded(px(4.0))
                     .cursor_pointer()
                     .text_size(px(12.0))
                     .text_color(SurchTheme::text_primary())
+                    .hover(|s| s.bg(SurchTheme::bg_hover()))
                     .child(label)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.show_actions_menu = false;
@@ -163,12 +226,32 @@ impl PreviewPanel {
             .flex_1()
             .overflow_y_scrollbar()
             .w_full()
-            .font_family("Monaco")
+            .font_family("SF Mono")
             .text_size(px(12.0));
 
-        for (i, line) in self.file_content.iter().enumerate() {
+        for (i, _line) in self.file_content.iter().enumerate() {
             let line_num = i + 1;
             let is_focus = line_num == focus;
+
+            // Build the line content from highlighted spans
+            let line_content = if let Some(spans) = self.highlighted_lines.get(i) {
+                let mut span_container = div().flex_1().flex().flex_row().whitespace_nowrap();
+                for (color, text) in spans {
+                    span_container = span_container.child(
+                        div().text_color(*color).child(text.clone()),
+                    );
+                }
+                span_container
+            } else {
+                // Fallback to plain text
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_row()
+                    .whitespace_nowrap()
+                    .text_color(SurchTheme::text_primary())
+                    .child(self.file_content[i].clone())
+            };
 
             let mut line_div = div()
                 .id(ElementId::Name(format!("line-{}", line_num).into()))
@@ -186,17 +269,14 @@ impl PreviewPanel {
                         .justify_end()
                         .child(format!("{}", line_num)),
                 )
-                // Line content
-                .child(
-                    div()
-                        .flex_1()
-                        .text_color(SurchTheme::text_primary())
-                        .whitespace_nowrap()
-                        .child(line.clone()),
-                );
+                // Line content with syntax highlighting
+                .child(line_content);
 
             if is_focus {
-                line_div = line_div.bg(hsla(0.15, 0.5, 0.2, 0.3));
+                line_div = line_div
+                    .bg(SurchTheme::bg_focus_line())
+                    .border_l_2()
+                    .border_color(hsla(0.15, 0.60, 0.50, 0.80));
             }
 
             code_container = code_container.child(line_div);
