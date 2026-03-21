@@ -166,3 +166,33 @@ Editors are detected by scanning `/Applications` for `.app` bundles, not by `whi
 | `syntect` 5 | Syntax highlighting (One Dark theme) |
 | `rust-embed` 8 | Compile-time asset embedding (SVG icons) |
 | `num_cpus` 1 | CPU count for parallel walker thread pool |
+
+## Pre-flight Checklist
+
+Before submitting any code change, verify these items. Each one has caused bugs multiple times:
+
+### Adding a new action (keyboard shortcut / menu item)
+1. Add the action to `actions!()` in `app.rs`
+2. Add the handler method `handle_*()` on `SurchApp`
+3. Add `.on_action(cx.listener(Self::handle_*))` **in `root_div()`** — this is the single source of truth. Do NOT add `.on_action()` directly on any view div.
+4. Add `KeyBinding::new(...)` in `main.rs`
+5. Add the menu item in `main.rs` if needed
+6. Import the action in `main.rs`
+
+### Adding a new icon button
+1. Check that the SVG exists in `crates/surch-app/assets/icons/`. If using an `IconName::*` variant, the SVG must be in **our** assets folder — gpui-component's built-in icons are NOT included via `SurchAssets`.
+2. Use `size_4()` minimum and `text_color(SurchTheme::text_heading())` — smaller sizes and muted colors are invisible on dark backgrounds.
+3. If the icon name doesn't exist in `IconName`, download the Lucide SVG from https://lucide.dev and add it to `assets/icons/`.
+
+### Click handlers that mutate state
+1. If the handler changes `flat_rows` length, swaps views (welcome ↔ main), or removes the clicked element → **wrap in `cx.spawn(async move |_, cx| { ... }).detach()`** to defer to next frame. GPUI panics otherwise.
+2. Call `cx.notify()` after mutations so the UI re-renders.
+
+### Modifying uniform_list data
+1. After any mutation to `file_groups` (add, remove, toggle collapse, clear), call `rebuild_flat_rows()`.
+2. Never clone large vecs inside the render closure — snapshot once before the closure, share via `Rc` if needed.
+
+### Adding or changing any feature
+1. Add tests for the new behavior in the relevant crate's `#[cfg(test)]` module.
+2. Run `cargo test --workspace` and confirm all tests pass before submitting.
+3. Run `cargo tarpaulin --workspace --skip-clean --exclude surch-app` to check code coverage — aim for ≥80% on `surch-core` and `surch-file-search`.

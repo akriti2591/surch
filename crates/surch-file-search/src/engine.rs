@@ -561,4 +561,344 @@ mod tests {
         let content = fs::read_to_string(dir.path().join("test.txt")).unwrap();
         assert_eq!(content, "bar bar bar\n");
     }
+
+    #[test]
+    fn test_search_exclude_glob() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("keep.rs"), "hello\n").unwrap();
+        fs::write(dir.path().join("skip.log"), "hello\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "hello");
+        query.fields.insert("exclude".to_string(), "*.log".to_string());
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].file_path.as_ref().unwrap().to_string_lossy().ends_with(".rs"));
+    }
+
+    #[test]
+    fn test_search_empty_pattern_sends_complete() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "");
+
+        run_search(query, tx, cancelled);
+
+        // Should get a Complete event with 0 matches
+        let mut got_complete = false;
+        for event in rx {
+            if let SearchEvent::Complete { total_files, total_matches } = event {
+                assert_eq!(total_files, 0);
+                assert_eq!(total_matches, 0);
+                got_complete = true;
+                break;
+            }
+        }
+        assert!(got_complete, "Should receive Complete event for empty pattern");
+    }
+
+    #[test]
+    fn test_search_invalid_regex_sends_error() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "[invalid(regex");
+        query.is_regex = true;
+
+        run_search(query, tx, cancelled);
+
+        let mut got_error = false;
+        for event in rx {
+            if let SearchEvent::Error(msg) = event {
+                assert!(msg.contains("Invalid pattern") || msg.contains("pattern"));
+                got_error = true;
+                break;
+            }
+        }
+        assert!(got_error, "Should receive Error event for invalid regex");
+    }
+
+    #[test]
+    fn test_search_empty_file() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "hello");
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_unicode_content() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("unicode.txt"), "こんにちは世界\nrust は素晴らしい\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "世界");
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].line_content.contains("世界"));
+    }
+
+    #[test]
+    fn test_search_multiple_files() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "needle here\n").unwrap();
+        fs::write(dir.path().join("b.txt"), "no match\n").unwrap();
+        fs::write(dir.path().join("c.txt"), "another needle\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "needle");
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_search_subdirectories() {
+        let dir = TempDir::new().unwrap();
+        let sub = dir.path().join("subdir");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("deep.txt"), "found me\n").unwrap();
+        fs::write(dir.path().join("top.txt"), "found me\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "found");
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_search_result_has_line_numbers() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "line one\nline two\nline three\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "two");
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].line_number, Some(2));
+    }
+
+    #[test]
+    fn test_search_result_has_match_ranges() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello world hello\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "hello");
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].match_ranges.is_empty());
+    }
+
+    #[test]
+    fn test_search_sends_complete_event() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "hello");
+
+        run_search(query, tx, cancelled);
+
+        let mut got_complete = false;
+        for event in rx {
+            if let SearchEvent::Complete { total_matches, .. } = event {
+                assert!(total_matches >= 1);
+                got_complete = true;
+                break;
+            }
+        }
+        assert!(got_complete);
+    }
+
+    #[test]
+    fn test_replace_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "Hello HELLO hello\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "hello");
+        query.case_sensitive = false;
+
+        let (replacements, _) = run_replace(query, "hi", tx, cancelled);
+
+        assert_eq!(replacements, 3);
+        let content = fs::read_to_string(dir.path().join("test.txt")).unwrap();
+        assert_eq!(content, "hi hi hi\n");
+    }
+
+    #[test]
+    fn test_replace_no_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "xyz");
+
+        let (replacements, files) = run_replace(query, "abc", tx, cancelled);
+
+        assert_eq!(replacements, 0);
+        assert_eq!(files, 0);
+
+        // File should be unchanged
+        let content = fs::read_to_string(dir.path().join("test.txt")).unwrap();
+        assert_eq!(content, "hello world\n");
+    }
+
+    #[test]
+    fn test_replace_multiple_files() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "foo bar\n").unwrap();
+        fs::write(dir.path().join("b.txt"), "baz foo\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "foo");
+
+        let (replacements, files) = run_replace(query, "qux", tx, cancelled);
+
+        assert_eq!(replacements, 2);
+        assert_eq!(files, 2);
+
+        let a = fs::read_to_string(dir.path().join("a.txt")).unwrap();
+        let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
+        assert!(a.contains("qux"));
+        assert!(b.contains("qux"));
+        assert!(!a.contains("foo"));
+        assert!(!b.contains("foo"));
+    }
+
+    #[test]
+    fn test_replace_with_include_glob() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("code.rs"), "let foo = 1;\n").unwrap();
+        fs::write(dir.path().join("text.txt"), "foo bar\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "foo");
+        query.fields.insert("include".to_string(), "*.rs".to_string());
+
+        let (replacements, files) = run_replace(query, "bar", tx, cancelled);
+
+        assert_eq!(files, 1);
+        assert_eq!(replacements, 1);
+
+        // Only .rs file should be modified
+        let rs_content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
+        assert!(rs_content.contains("let bar = 1;"));
+
+        // .txt file should be unchanged
+        let txt_content = fs::read_to_string(dir.path().join("text.txt")).unwrap();
+        assert_eq!(txt_content, "foo bar\n");
+    }
+
+    #[test]
+    fn test_find_match_ranges_special_regex_chars() {
+        // Ensure literal search handles regex metacharacters
+        let ranges = find_match_ranges("foo.bar(baz)", "foo.bar", true);
+        // This is a literal match function — "." should match literal "."
+        assert!(!ranges.is_empty());
+    }
+
+    #[test]
+    fn test_replace_with_exclude_glob() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("keep.rs"), "foo bar\n").unwrap();
+        fs::write(dir.path().join("skip.log"), "foo baz\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "foo");
+        query.fields.insert("exclude".to_string(), "*.log".to_string());
+
+        let (replacements, files) = run_replace(query, "qux", tx, cancelled);
+
+        assert_eq!(files, 1);
+        assert_eq!(replacements, 1);
+
+        let rs = fs::read_to_string(dir.path().join("keep.rs")).unwrap();
+        assert!(rs.contains("qux"));
+
+        let log = fs::read_to_string(dir.path().join("skip.log")).unwrap();
+        assert_eq!(log, "foo baz\n"); // unchanged
+    }
+
+    #[test]
+    fn test_search_include_multiple_globs() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.rs"), "needle\n").unwrap();
+        fs::write(dir.path().join("b.py"), "needle\n").unwrap();
+        fs::write(dir.path().join("c.txt"), "needle\n").unwrap();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "needle");
+        query.fields.insert("include".to_string(), "*.rs, *.py".to_string());
+
+        run_search(query, tx, cancelled);
+        let results = collect_results(&rx);
+
+        // Should only find matches in .rs and .py, not .txt
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_replace_empty_pattern() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let query = make_query(dir.path(), "");
+
+        let (replacements, files) = run_replace(query, "world", tx, cancelled);
+
+        assert_eq!(replacements, 0);
+        assert_eq!(files, 0);
+    }
+
+    #[test]
+    fn test_find_match_ranges_unicode() {
+        let ranges = find_match_ranges("hello 世界 world", "世界", true);
+        assert_eq!(ranges.len(), 1);
+    }
 }

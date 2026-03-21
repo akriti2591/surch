@@ -163,6 +163,13 @@ impl PreviewPanel {
         self.show_actions_menu = false;
     }
 
+    /// Returns true if the go-to-line input currently has focus.
+    pub fn any_input_focused(&self, window: &Window, cx: &App) -> bool {
+        self.go_to_line_input.as_ref().map_or(false, |input| {
+            input.read(cx).focus_handle(cx).is_focused(window)
+        })
+    }
+
     pub fn set_workspace_root(&mut self, root: PathBuf) {
         self.workspace_root = Some(root);
     }

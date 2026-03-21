@@ -506,6 +506,10 @@ impl SurchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Don't intercept arrow keys when any input field has focus
+        if self.any_input_focused(window, cx) {
+            return;
+        }
         self.search_panel.update(cx, |panel, cx| {
             panel.select_next(window, cx);
         });
@@ -517,6 +521,10 @@ impl SurchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Don't intercept arrow keys when any input field has focus
+        if self.any_input_focused(window, cx) {
+            return;
+        }
         self.search_panel.update(cx, |panel, cx| {
             panel.select_previous(window, cx);
         });
@@ -811,27 +819,46 @@ impl SurchApp {
     }
 }
 
+impl SurchApp {
+    /// Returns true if any input field (search panel or preview panel) has focus.
+    fn any_input_focused(&self, window: &Window, cx: &App) -> bool {
+        self.search_panel.read(cx).any_input_focused(window, cx)
+            || self.preview_panel.read(cx).any_input_focused(window, cx)
+    }
+
+    /// Create a root div with ALL action handlers registered.
+    /// IMPORTANT: This is the single source of truth for action registration.
+    /// Every new action MUST be added here — never register actions directly
+    /// on individual view divs. GPUI greys out menu items when it can't find
+    /// a handler in the focus dispatch path, so both the welcome screen and
+    /// main view must have identical handler sets.
+    fn root_div(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        div()
+            .id("surch-root")
+            .key_context("surch")
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::handle_open_folder))
+            .on_action(cx.listener(Self::handle_close_project))
+            .on_action(cx.listener(Self::handle_focus_find))
+            .on_action(cx.listener(Self::handle_toggle_case))
+            .on_action(cx.listener(Self::handle_toggle_word))
+            .on_action(cx.listener(Self::handle_toggle_regex))
+            .on_action(cx.listener(Self::handle_select_next))
+            .on_action(cx.listener(Self::handle_select_previous))
+            .on_action(cx.listener(Self::handle_open_in_editor))
+            .on_action(cx.listener(Self::handle_clear_search))
+            .on_action(cx.listener(Self::handle_zoom_in))
+            .on_action(cx.listener(Self::handle_zoom_out))
+            .on_action(cx.listener(Self::handle_zoom_reset))
+            .on_action(cx.listener(Self::handle_go_to_line))
+    }
+}
+
 impl Render for SurchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.workspace_root.is_none() {
-            return div()
-                .id("surch-root")
-                .key_context("surch")
-                .track_focus(&self.focus_handle)
-                .on_action(cx.listener(Self::handle_open_folder))
-                .on_action(cx.listener(Self::handle_close_project))
-                .on_action(cx.listener(Self::handle_focus_find))
-                .on_action(cx.listener(Self::handle_toggle_case))
-                .on_action(cx.listener(Self::handle_toggle_word))
-                .on_action(cx.listener(Self::handle_toggle_regex))
-                .on_action(cx.listener(Self::handle_select_next))
-                .on_action(cx.listener(Self::handle_select_previous))
-                .on_action(cx.listener(Self::handle_open_in_editor))
-                .on_action(cx.listener(Self::handle_clear_search))
-                .on_action(cx.listener(Self::handle_zoom_in))
-                .on_action(cx.listener(Self::handle_zoom_out))
-                .on_action(cx.listener(Self::handle_zoom_reset))
-                .on_action(cx.listener(Self::handle_go_to_line))
+            return self
+                .root_div(cx)
                 .size_full()
                 .flex()
                 .flex_col()
@@ -904,24 +931,7 @@ impl Render for SurchApp {
                 .into_any_element();
         }
 
-        div()
-            .id("surch-root")
-            .key_context("surch")
-            .track_focus(&self.focus_handle)
-            .on_action(cx.listener(Self::handle_open_folder))
-            .on_action(cx.listener(Self::handle_close_project))
-            .on_action(cx.listener(Self::handle_focus_find))
-            .on_action(cx.listener(Self::handle_toggle_case))
-            .on_action(cx.listener(Self::handle_toggle_word))
-            .on_action(cx.listener(Self::handle_toggle_regex))
-            .on_action(cx.listener(Self::handle_select_next))
-            .on_action(cx.listener(Self::handle_select_previous))
-            .on_action(cx.listener(Self::handle_open_in_editor))
-            .on_action(cx.listener(Self::handle_clear_search))
-            .on_action(cx.listener(Self::handle_zoom_in))
-            .on_action(cx.listener(Self::handle_zoom_out))
-            .on_action(cx.listener(Self::handle_zoom_reset))
-            .on_action(cx.listener(Self::handle_go_to_line))
+        self.root_div(cx)
             .size_full()
             .flex()
             .flex_col()

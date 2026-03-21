@@ -178,3 +178,428 @@ impl WorkspaceState {
         self.exclude_history.truncate(10);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    // === AppConfig tests ===
+
+    #[test]
+    fn test_app_config_default() {
+        let config = AppConfig::default();
+        assert!(config.recent_workspaces.is_empty());
+        assert!(config.editors.is_empty());
+    }
+
+    #[test]
+    fn test_add_recent_workspace() {
+        let mut config = AppConfig::default();
+        config.add_recent_workspace(PathBuf::from("/tmp/project-a"));
+
+        assert_eq!(config.recent_workspaces.len(), 1);
+        assert_eq!(config.recent_workspaces[0].path, PathBuf::from("/tmp/project-a"));
+        assert!(config.recent_workspaces[0].last_opened > 0);
+    }
+
+    #[test]
+    fn test_add_recent_workspace_deduplicates() {
+        let mut config = AppConfig::default();
+        config.add_recent_workspace(PathBuf::from("/tmp/a"));
+        config.add_recent_workspace(PathBuf::from("/tmp/b"));
+        config.add_recent_workspace(PathBuf::from("/tmp/a")); // duplicate
+
+        assert_eq!(config.recent_workspaces.len(), 2);
+        // Most recent should be first
+        assert_eq!(config.recent_workspaces[0].path, PathBuf::from("/tmp/a"));
+        assert_eq!(config.recent_workspaces[1].path, PathBuf::from("/tmp/b"));
+    }
+
+    #[test]
+    fn test_add_recent_workspace_truncates_to_10() {
+        let mut config = AppConfig::default();
+        for i in 0..15 {
+            config.add_recent_workspace(PathBuf::from(format!("/tmp/project-{}", i)));
+        }
+
+        assert_eq!(config.recent_workspaces.len(), 10);
+        // Most recent (14) should be first
+        assert_eq!(
+            config.recent_workspaces[0].path,
+            PathBuf::from("/tmp/project-14")
+        );
+    }
+
+    #[test]
+    fn test_add_recent_workspace_moves_to_front() {
+        let mut config = AppConfig::default();
+        config.add_recent_workspace(PathBuf::from("/tmp/a"));
+        config.add_recent_workspace(PathBuf::from("/tmp/b"));
+        config.add_recent_workspace(PathBuf::from("/tmp/c"));
+
+        // Re-add "a" — should move to front
+        config.add_recent_workspace(PathBuf::from("/tmp/a"));
+
+        assert_eq!(config.recent_workspaces[0].path, PathBuf::from("/tmp/a"));
+        assert_eq!(config.recent_workspaces[1].path, PathBuf::from("/tmp/c"));
+        assert_eq!(config.recent_workspaces[2].path, PathBuf::from("/tmp/b"));
+    }
+
+    #[test]
+    fn test_app_config_save_and_load_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("config.toml");
+
+        let mut config = AppConfig::default();
+        config.add_recent_workspace(PathBuf::from("/tmp/test"));
+        config.editors.push(EditorConfig {
+            name: "Cursor".to_string(),
+            command: "cursor".to_string(),
+            open_args: "--goto {file}:{line}".to_string(),
+        });
+
+        // Save manually to temp dir
+        let content = toml::to_string_pretty(&config).unwrap();
+        fs::write(&config_path, &content).unwrap();
+
+        // Load back
+        let loaded_content = fs::read_to_string(&config_path).unwrap();
+        let loaded: AppConfig = toml::from_str(&loaded_content).unwrap();
+
+        assert_eq!(loaded.recent_workspaces.len(), 1);
+        assert_eq!(loaded.recent_workspaces[0].path, PathBuf::from("/tmp/test"));
+        assert_eq!(loaded.editors.len(), 1);
+        assert_eq!(loaded.editors[0].name, "Cursor");
+        assert_eq!(loaded.editors[0].open_args, "--goto {file}:{line}");
+    }
+
+    #[test]
+    fn test_app_config_load_invalid_toml_returns_default() {
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("config.toml");
+        fs::write(&config_path, "this is not valid toml {{{{").unwrap();
+
+        let content = fs::read_to_string(&config_path).unwrap();
+        let config: AppConfig = toml::from_str(&content).unwrap_or_default();
+
+        assert!(config.recent_workspaces.is_empty());
+    }
+
+    #[test]
+    fn test_app_config_serialization_with_empty_fields() {
+        let config = AppConfig::default();
+        let content = toml::to_string_pretty(&config).unwrap();
+        let loaded: AppConfig = toml::from_str(&content).unwrap();
+        assert!(loaded.recent_workspaces.is_empty());
+        assert!(loaded.editors.is_empty());
+    }
+
+    // === WorkspaceState tests ===
+
+    #[test]
+    fn test_workspace_state_default() {
+        let state = WorkspaceState::default();
+        assert!(state.search_history.is_empty());
+        assert!(state.replace_history.is_empty());
+        assert!(state.include_history.is_empty());
+        assert!(state.exclude_history.is_empty());
+        assert!(!state.case_sensitive);
+        assert!(!state.whole_word);
+        assert!(!state.is_regex);
+    }
+
+    #[test]
+    fn test_add_search_basic() {
+        let mut state = WorkspaceState::default();
+        state.add_search("hello".to_string());
+
+        assert_eq!(state.search_history.len(), 1);
+        assert_eq!(state.search_history[0], "hello");
+    }
+
+    #[test]
+    fn test_add_search_empty_string_ignored() {
+        let mut state = WorkspaceState::default();
+        state.add_search(String::new());
+
+        assert!(state.search_history.is_empty());
+    }
+
+    #[test]
+    fn test_add_search_deduplicates() {
+        let mut state = WorkspaceState::default();
+        state.add_search("hello".to_string());
+        state.add_search("world".to_string());
+        state.add_search("hello".to_string());
+
+        assert_eq!(state.search_history.len(), 2);
+        assert_eq!(state.search_history[0], "hello");
+        assert_eq!(state.search_history[1], "world");
+    }
+
+    #[test]
+    fn test_add_search_truncates_to_20() {
+        let mut state = WorkspaceState::default();
+        for i in 0..25 {
+            state.add_search(format!("query-{}", i));
+        }
+
+        assert_eq!(state.search_history.len(), 20);
+        assert_eq!(state.search_history[0], "query-24");
+    }
+
+    #[test]
+    fn test_add_replace_basic() {
+        let mut state = WorkspaceState::default();
+        state.add_replace("goodbye".to_string());
+
+        assert_eq!(state.replace_history.len(), 1);
+        assert_eq!(state.replace_history[0], "goodbye");
+    }
+
+    #[test]
+    fn test_add_replace_empty_string_ignored() {
+        let mut state = WorkspaceState::default();
+        state.add_replace(String::new());
+        assert!(state.replace_history.is_empty());
+    }
+
+    #[test]
+    fn test_add_replace_deduplicates() {
+        let mut state = WorkspaceState::default();
+        state.add_replace("a".to_string());
+        state.add_replace("b".to_string());
+        state.add_replace("a".to_string());
+
+        assert_eq!(state.replace_history.len(), 2);
+        assert_eq!(state.replace_history[0], "a");
+    }
+
+    #[test]
+    fn test_add_replace_truncates_to_20() {
+        let mut state = WorkspaceState::default();
+        for i in 0..25 {
+            state.add_replace(format!("replace-{}", i));
+        }
+        assert_eq!(state.replace_history.len(), 20);
+    }
+
+    #[test]
+    fn test_add_include_basic() {
+        let mut state = WorkspaceState::default();
+        state.add_include("*.rs".to_string());
+
+        assert_eq!(state.include_history.len(), 1);
+        assert_eq!(state.include_history[0], "*.rs");
+    }
+
+    #[test]
+    fn test_add_include_empty_string_ignored() {
+        let mut state = WorkspaceState::default();
+        state.add_include(String::new());
+        assert!(state.include_history.is_empty());
+    }
+
+    #[test]
+    fn test_add_include_truncates_to_10() {
+        let mut state = WorkspaceState::default();
+        for i in 0..15 {
+            state.add_include(format!("*.ext{}", i));
+        }
+        assert_eq!(state.include_history.len(), 10);
+        assert_eq!(state.include_history[0], "*.ext14");
+    }
+
+    #[test]
+    fn test_add_exclude_basic() {
+        let mut state = WorkspaceState::default();
+        state.add_exclude("target/**".to_string());
+
+        assert_eq!(state.exclude_history.len(), 1);
+        assert_eq!(state.exclude_history[0], "target/**");
+    }
+
+    #[test]
+    fn test_add_exclude_empty_string_ignored() {
+        let mut state = WorkspaceState::default();
+        state.add_exclude(String::new());
+        assert!(state.exclude_history.is_empty());
+    }
+
+    #[test]
+    fn test_add_exclude_deduplicates() {
+        let mut state = WorkspaceState::default();
+        state.add_exclude("node_modules".to_string());
+        state.add_exclude("target".to_string());
+        state.add_exclude("node_modules".to_string());
+
+        assert_eq!(state.exclude_history.len(), 2);
+        assert_eq!(state.exclude_history[0], "node_modules");
+    }
+
+    #[test]
+    fn test_add_exclude_truncates_to_10() {
+        let mut state = WorkspaceState::default();
+        for i in 0..15 {
+            state.add_exclude(format!("dir{}", i));
+        }
+        assert_eq!(state.exclude_history.len(), 10);
+    }
+
+    #[test]
+    fn test_workspace_state_save_and_load_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let mut state = WorkspaceState::default();
+        state.add_search("foo".to_string());
+        state.add_replace("bar".to_string());
+        state.add_include("*.rs".to_string());
+        state.add_exclude("target".to_string());
+        state.case_sensitive = true;
+        state.whole_word = true;
+        state.is_regex = false;
+
+        // Save to a temporary workspace dir
+        let state_dir = dir.path().join("state");
+        fs::create_dir_all(&state_dir).unwrap();
+        let state_path = state_dir.join("state.json");
+        let content = serde_json::to_string_pretty(&state).unwrap();
+        fs::write(&state_path, &content).unwrap();
+
+        // Load back
+        let loaded_content = fs::read_to_string(&state_path).unwrap();
+        let loaded: WorkspaceState = serde_json::from_str(&loaded_content).unwrap();
+
+        assert_eq!(loaded.search_history, vec!["foo"]);
+        assert_eq!(loaded.replace_history, vec!["bar"]);
+        assert_eq!(loaded.include_history, vec!["*.rs"]);
+        assert_eq!(loaded.exclude_history, vec!["target"]);
+        assert!(loaded.case_sensitive);
+        assert!(loaded.whole_word);
+        assert!(!loaded.is_regex);
+    }
+
+    #[test]
+    fn test_workspace_state_load_invalid_json_returns_default() {
+        let content = "not valid json {{{";
+        let state: WorkspaceState = serde_json::from_str(content).unwrap_or_default();
+        assert!(state.search_history.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_state_load_partial_json() {
+        // Should handle missing fields gracefully via #[serde(default)]
+        let content = r#"{"search_history": ["test"]}"#;
+        let state: WorkspaceState = serde_json::from_str(content).unwrap();
+        assert_eq!(state.search_history, vec!["test"]);
+        assert!(state.replace_history.is_empty());
+        assert!(!state.case_sensitive);
+    }
+
+    #[test]
+    fn test_workspace_dir_hashing_is_deterministic() {
+        let path = PathBuf::from("/Users/dev/projects/surch");
+        let dir1 = WorkspaceState::workspace_dir(&path);
+        let dir2 = WorkspaceState::workspace_dir(&path);
+        assert_eq!(dir1, dir2);
+    }
+
+    #[test]
+    fn test_workspace_dir_different_paths_different_hashes() {
+        let dir1 = WorkspaceState::workspace_dir(&PathBuf::from("/tmp/a"));
+        let dir2 = WorkspaceState::workspace_dir(&PathBuf::from("/tmp/b"));
+        assert_ne!(dir1, dir2);
+    }
+
+    #[test]
+    fn test_workspace_state_save_and_load_via_methods() {
+        // Use the actual save/load methods (not manual file I/O)
+        let dir = TempDir::new().unwrap();
+        let workspace_path = dir.path().to_path_buf();
+
+        let mut state = WorkspaceState::default();
+        state.add_search("test_query".to_string());
+        state.add_replace("test_replace".to_string());
+        state.case_sensitive = true;
+        state.is_regex = true;
+
+        state.save(&workspace_path).unwrap();
+
+        let loaded = WorkspaceState::load(&workspace_path);
+        assert_eq!(loaded.search_history, vec!["test_query"]);
+        assert_eq!(loaded.replace_history, vec!["test_replace"]);
+        assert!(loaded.case_sensitive);
+        assert!(loaded.is_regex);
+        assert!(!loaded.whole_word);
+    }
+
+    #[test]
+    fn test_workspace_state_load_nonexistent_returns_default() {
+        let dir = TempDir::new().unwrap();
+        let nonexistent = dir.path().join("does_not_exist");
+        let state = WorkspaceState::load(&nonexistent);
+        assert!(state.search_history.is_empty());
+        assert!(!state.case_sensitive);
+    }
+
+    #[test]
+    fn test_workspace_state_state_path_contains_hash() {
+        let workspace_path = PathBuf::from("/tmp/my-project");
+        let path = WorkspaceState::state_path(&workspace_path);
+        assert!(path.to_string_lossy().contains("workspaces"));
+        assert!(path.to_string_lossy().ends_with("state.json"));
+    }
+
+    #[test]
+    fn test_app_config_config_dir() {
+        let dir = AppConfig::config_dir();
+        assert!(dir.to_string_lossy().contains("surch"));
+    }
+
+    #[test]
+    fn test_app_config_config_path() {
+        let path = AppConfig::config_path();
+        assert!(path.to_string_lossy().ends_with("config.toml"));
+    }
+
+    #[test]
+    fn test_add_include_deduplicates() {
+        let mut state = WorkspaceState::default();
+        state.add_include("*.rs".to_string());
+        state.add_include("*.py".to_string());
+        state.add_include("*.rs".to_string());
+
+        assert_eq!(state.include_history.len(), 2);
+        assert_eq!(state.include_history[0], "*.rs");
+        assert_eq!(state.include_history[1], "*.py");
+    }
+
+    #[test]
+    fn test_recent_workspace_timestamp_increases() {
+        let mut config = AppConfig::default();
+        config.add_recent_workspace(PathBuf::from("/tmp/a"));
+        let t1 = config.recent_workspaces[0].last_opened;
+
+        // Small delay to ensure different timestamp
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        config.add_recent_workspace(PathBuf::from("/tmp/b"));
+        let t2 = config.recent_workspaces[0].last_opened;
+
+        assert!(t2 >= t1);
+    }
+
+    #[test]
+    fn test_editor_config_serialization() {
+        let editor = EditorConfig {
+            name: "VS Code".to_string(),
+            command: "code".to_string(),
+            open_args: "--goto {file}:{line}".to_string(),
+        };
+        let json = serde_json::to_string(&editor).unwrap();
+        let loaded: EditorConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.name, "VS Code");
+        assert_eq!(loaded.command, "code");
+        assert_eq!(loaded.open_args, "--goto {file}:{line}");
+    }
+}

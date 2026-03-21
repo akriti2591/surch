@@ -157,6 +157,13 @@ impl SearchPanel {
         self.is_regex = is_regex;
     }
 
+    /// Returns true if any input field currently has focus.
+    pub fn any_input_focused(&self, window: &Window, cx: &App) -> bool {
+        self.inputs.values().any(|input| {
+            input.read(cx).focus_handle(cx).is_focused(window)
+        })
+    }
+
     /// Select the next match row in the results list.
     pub fn select_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.flat_rows.is_empty() {

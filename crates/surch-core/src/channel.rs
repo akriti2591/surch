@@ -41,6 +41,168 @@ impl ChannelQuery {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_channel_query_field_returns_value() {
+        let mut fields = HashMap::new();
+        fields.insert("find".to_string(), "hello".to_string());
+        let query = ChannelQuery {
+            fields,
+            ..Default::default()
+        };
+        assert_eq!(query.field("find"), "hello");
+    }
+
+    #[test]
+    fn test_channel_query_field_returns_empty_for_missing() {
+        let query = ChannelQuery::default();
+        assert_eq!(query.field("nonexistent"), "");
+    }
+
+    #[test]
+    fn test_channel_query_field_empty_value() {
+        let mut fields = HashMap::new();
+        fields.insert("find".to_string(), String::new());
+        let query = ChannelQuery {
+            fields,
+            ..Default::default()
+        };
+        assert_eq!(query.field("find"), "");
+    }
+
+    #[test]
+    fn test_channel_query_default_flags() {
+        let query = ChannelQuery::default();
+        assert!(!query.is_regex);
+        assert!(!query.case_sensitive);
+        assert!(!query.whole_word);
+    }
+
+    #[test]
+    fn test_channel_metadata_fields() {
+        let meta = ChannelMetadata {
+            id: "test".to_string(),
+            name: "Test Channel".to_string(),
+            icon: "search".to_string(),
+            description: "A test channel".to_string(),
+        };
+        assert_eq!(meta.id, "test");
+        assert_eq!(meta.name, "Test Channel");
+    }
+
+    #[test]
+    fn test_input_field_spec() {
+        let spec = InputFieldSpec {
+            id: "find".to_string(),
+            label: "Find".to_string(),
+            placeholder: "Search...".to_string(),
+        };
+        assert_eq!(spec.id, "find");
+        assert_eq!(spec.placeholder, "Search...");
+    }
+
+    #[test]
+    fn test_result_entry_with_all_fields() {
+        let entry = ResultEntry {
+            id: 42,
+            file_path: Some(PathBuf::from("/tmp/test.rs")),
+            line_number: Some(10),
+            column: Some(5),
+            line_content: "fn hello() {}".to_string(),
+            match_ranges: vec![3..8],
+        };
+        assert_eq!(entry.id, 42);
+        assert_eq!(entry.line_number, Some(10));
+        assert_eq!(entry.match_ranges.len(), 1);
+        assert_eq!(entry.match_ranges[0], 3..8);
+    }
+
+    #[test]
+    fn test_result_entry_without_optional_fields() {
+        let entry = ResultEntry {
+            id: 0,
+            file_path: None,
+            line_number: None,
+            column: None,
+            line_content: String::new(),
+            match_ranges: vec![],
+        };
+        assert!(entry.file_path.is_none());
+        assert!(entry.line_number.is_none());
+        assert!(entry.match_ranges.is_empty());
+    }
+
+    #[test]
+    fn test_search_event_variants() {
+        let match_event = SearchEvent::Match(ResultEntry {
+            id: 1,
+            file_path: None,
+            line_number: None,
+            column: None,
+            line_content: "test".to_string(),
+            match_ranges: vec![],
+        });
+        assert!(matches!(match_event, SearchEvent::Match(_)));
+
+        let progress = SearchEvent::Progress {
+            files_searched: 10,
+            matches_found: 5,
+        };
+        assert!(matches!(progress, SearchEvent::Progress { .. }));
+
+        let complete = SearchEvent::Complete {
+            total_files: 100,
+            total_matches: 50,
+        };
+        assert!(matches!(complete, SearchEvent::Complete { .. }));
+
+        let error = SearchEvent::Error("bad pattern".to_string());
+        assert!(matches!(error, SearchEvent::Error(_)));
+    }
+
+    #[test]
+    fn test_preview_content_variants() {
+        let code = PreviewContent::Code {
+            path: PathBuf::from("test.rs"),
+            focus_line: 42,
+            language: Some("rust".to_string()),
+        };
+        assert!(matches!(code, PreviewContent::Code { .. }));
+
+        let text = PreviewContent::Text("hello".to_string());
+        assert!(matches!(text, PreviewContent::Text(_)));
+
+        let kv = PreviewContent::KeyValue(vec![
+            ("key".to_string(), "value".to_string()),
+        ]);
+        assert!(matches!(kv, PreviewContent::KeyValue(_)));
+
+        let none = PreviewContent::None;
+        assert!(matches!(none, PreviewContent::None));
+    }
+
+    #[test]
+    fn test_channel_action() {
+        let action = ChannelAction {
+            id: "open_in_cursor".to_string(),
+            label: "Open in Cursor".to_string(),
+            icon: Some("cursor".to_string()),
+        };
+        assert_eq!(action.id, "open_in_cursor");
+        assert!(action.icon.is_some());
+
+        let action_no_icon = ChannelAction {
+            id: "reveal".to_string(),
+            label: "Reveal in Finder".to_string(),
+            icon: None,
+        };
+        assert!(action_no_icon.icon.is_none());
+    }
+}
+
 /// A single result entry produced by a channel's search.
 #[derive(Debug, Clone)]
 pub struct ResultEntry {
