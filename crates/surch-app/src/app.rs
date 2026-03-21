@@ -40,6 +40,7 @@ pub struct SurchApp {
     search_receiver: Option<Receiver<SearchEvent>>,
     pending_query: Option<HashMap<String, String>>,
     current_result: Option<SearchResultItem>,
+    focus_handle: FocusHandle,
 }
 
 impl SurchApp {
@@ -72,6 +73,7 @@ impl SurchApp {
             search_receiver: None,
             pending_query: None,
             current_result: None,
+            focus_handle: cx.focus_handle(),
         };
 
         app.setup_callbacks(window, cx);
@@ -442,8 +444,15 @@ impl Render for SurchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.workspace_root.is_none() {
             return div()
+                .id("surch-root")
                 .key_context("surch")
+                .track_focus(&self.focus_handle)
                 .on_action(cx.listener(Self::handle_open_folder))
+                .on_action(cx.listener(Self::handle_close_project))
+                .on_action(cx.listener(Self::handle_focus_find))
+                .on_action(cx.listener(Self::handle_toggle_case))
+                .on_action(cx.listener(Self::handle_toggle_word))
+                .on_action(cx.listener(Self::handle_toggle_regex))
                 .size_full()
                 .flex()
                 .flex_col()
@@ -515,7 +524,9 @@ impl Render for SurchApp {
         }
 
         div()
+            .id("surch-root")
             .key_context("surch")
+            .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::handle_open_folder))
             .on_action(cx.listener(Self::handle_close_project))
             .on_action(cx.listener(Self::handle_focus_find))
