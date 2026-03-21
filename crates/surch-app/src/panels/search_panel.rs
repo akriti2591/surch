@@ -167,38 +167,34 @@ impl SearchPanel {
         })
     }
 
-    /// Select the next match row in the results list.
-    pub fn select_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Select the next match row, update state, and return the selected item.
+    /// Does NOT fire `on_result_selected` — caller handles that to avoid re-entrant entity updates.
+    pub fn select_next_item(&mut self, cx: &mut Context<Self>) -> Option<SearchResultItem> {
         if self.flat_rows.is_empty() {
-            return;
+            return None;
         }
 
-        // Find the current selected index in flat_rows
         let current_idx = self.selected_result.and_then(|selected_id| {
             self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item } if item.id == selected_id))
         });
 
-        // Find the next MatchRow after current
         let start = current_idx.map(|i| i + 1).unwrap_or(0);
         for i in start..self.flat_rows.len() {
             if let FlatRow::MatchRow { item } = &self.flat_rows[i] {
                 self.selected_result = Some(item.id);
-                // Scroll to make the selected item visible
                 self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
-                // Fire the selection callback
-                if let Some(ref handler) = self.on_result_selected {
-                    handler(item, window, cx);
-                }
                 cx.notify();
-                return;
+                return Some(item.clone());
             }
         }
+        None
     }
 
-    /// Select the previous match row in the results list.
-    pub fn select_previous(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Select the previous match row, update state, and return the selected item.
+    /// Does NOT fire `on_result_selected` — caller handles that to avoid re-entrant entity updates.
+    pub fn select_previous_item(&mut self, cx: &mut Context<Self>) -> Option<SearchResultItem> {
         if self.flat_rows.is_empty() {
-            return;
+            return None;
         }
 
         let current_idx = self.selected_result.and_then(|selected_id| {
@@ -206,22 +202,19 @@ impl SearchPanel {
         });
 
         let end = match current_idx {
-            Some(0) | None => return,
+            Some(0) | None => return None,
             Some(i) => i,
         };
 
-        // Find the previous MatchRow before current
         for i in (0..end).rev() {
             if let FlatRow::MatchRow { item } = &self.flat_rows[i] {
                 self.selected_result = Some(item.id);
                 self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
-                if let Some(ref handler) = self.on_result_selected {
-                    handler(item, window, cx);
-                }
                 cx.notify();
-                return;
+                return Some(item.clone());
             }
         }
+        None
     }
 
     fn on_input_changed(&mut self, _field_id: &str, window: &mut Window, cx: &mut Context<Self>) {

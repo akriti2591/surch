@@ -523,12 +523,18 @@ impl SurchApp {
         // Defer to next frame — arrow keys route through macOS's inputContext →
         // do_command_by_selector (an extern "C" callback). Any state mutation
         // that triggers re-render inside that callback causes panic_cannot_unwind.
+        // Use select_next_item (not select_next) to avoid the on_result_selected
+        // callback which would re-entrantly update SurchApp → double lease panic.
         let entity = cx.entity().clone();
         window.on_next_frame(move |window, cx| {
+            let _ = window;
             entity.update(cx, |app, cx| {
-                app.search_panel.update(cx, |panel, cx| {
-                    panel.select_next(window, cx);
+                let selected_item = app.search_panel.update(cx, |panel, cx| {
+                    panel.select_next_item(cx)
                 });
+                if let Some(result) = selected_item {
+                    app.handle_result_selected(result, cx);
+                }
             });
         });
     }
@@ -542,10 +548,14 @@ impl SurchApp {
         // Defer to next frame — same reason as handle_select_next.
         let entity = cx.entity().clone();
         window.on_next_frame(move |window, cx| {
+            let _ = window;
             entity.update(cx, |app, cx| {
-                app.search_panel.update(cx, |panel, cx| {
-                    panel.select_previous(window, cx);
+                let selected_item = app.search_panel.update(cx, |panel, cx| {
+                    panel.select_previous_item(cx)
                 });
+                if let Some(result) = selected_item {
+                    app.handle_result_selected(result, cx);
+                }
             });
         });
     }
