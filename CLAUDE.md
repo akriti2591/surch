@@ -115,9 +115,32 @@ These are hard-won lessons. Read before touching GPUI code:
 
 11. **gpui-component re-exports.** `pub use icon::*` and `pub use styled::*` at crate root means `Icon`, `IconName`, `Sizable`, `Size` are all at `gpui_component::`. The `spinner` module is NOT re-exported — use `gpui_component::spinner::Spinner`.
 
+## Syntect Gotchas
+
+12. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.
+
+13. **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
+
 ## Future: Tree-sitter for Syntax Highlighting
 
-`syntect` (regex-based, TextMate grammars) works but is line-by-line and can drift on complex files. **Tree-sitter** (C library with Rust bindings via `tree-sitter` crate) is what Zed, Neovim, Helix, and Atom use — it parses into a full AST and supports incremental re-parsing (only re-highlights changed regions). This is a post-v1.0 consideration for better highlighting accuracy and performance on large files.
+`syntect` (regex-based, TextMate grammars) works but is line-by-line and can drift on complex files. **Tree-sitter** (C library with Rust bindings via `tree-sitter` crate) is what Zed, Neovim, Helix, and Atom use — it parses into a full AST and supports incremental re-parsing (only re-highlights changed regions). This is a post-v1.0 consideration for better highlighting accuracy and performance on large files. Tree-sitter also provides the AST needed for a future Symbol Search channel (function/class/type definitions for free).
+
+## Preview Panel Architecture
+
+The preview panel is intentionally custom — `uniform_list` + `syntect` spans + manual div layout. This is correct because:
+- gpui-component's `TextView` is Markdown/HTML-first, not designed for raw code files
+- `Inline` component (inside `TextView`) handles text selection + clipboard at the span level — adopt this for text selection without taking the full `TextView`
+- For Markdown files (README preview), consider using `TextView` directly
+- C++ interop for text editors (e.g., Scintilla) won't work because GPUI owns the Metal rendering surface — can't embed foreign widgets
+
+## Color Accessibility
+
+All text/background color pairings must meet WCAG AA contrast ratios:
+- Normal text: ≥ 4.5:1 contrast ratio
+- Large text (≥18px or ≥14px bold): ≥ 3:1
+- `text_secondary` on dark backgrounds: lightness ≥ 0.68
+- `text_muted` on dark backgrounds: lightness ≥ 0.52
+- Test with macOS Accessibility Inspector
 
 ## Editor Auto-Discovery
 

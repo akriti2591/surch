@@ -43,7 +43,7 @@ enum FlatRow {
 
 pub struct SearchPanel {
     input_fields: Vec<InputFieldSpec>,
-    inputs: HashMap<String, Entity<InputState>>,
+    pub(crate) inputs: HashMap<String, Entity<InputState>>,
     file_groups: Vec<FileGroup>,
     flat_rows: Vec<FlatRow>,
     selected_result: Option<u64>,
@@ -55,10 +55,13 @@ pub struct SearchPanel {
     case_sensitive: bool,
     whole_word: bool,
     is_regex: bool,
+    all_collapsed: bool,
     pub on_query_changed:
         Option<Box<dyn Fn(HashMap<String, String>, &mut Window, &mut Context<Self>)>>,
     pub on_result_selected:
         Option<Box<dyn Fn(&SearchResultItem, &mut Window, &mut Context<Self>)>>,
+    pub on_refresh: Option<Box<dyn Fn(&mut Window, &mut Context<Self>)>>,
+    pub on_close_project: Option<Box<dyn Fn(&mut Window, &mut Context<Self>)>>,
 }
 
 impl SearchPanel {
@@ -100,8 +103,11 @@ impl SearchPanel {
             case_sensitive: false,
             whole_word: false,
             is_regex: false,
+            all_collapsed: false,
             on_query_changed: None,
             on_result_selected: None,
+            on_refresh: None,
+            on_close_project: None,
         }
     }
 
@@ -197,6 +203,22 @@ impl SearchPanel {
         self.is_searching = false;
     }
 
+    fn collapse_all(&mut self) {
+        for group in &mut self.file_groups {
+            group.collapsed = true;
+        }
+        self.all_collapsed = true;
+        self.rebuild_flat_rows();
+    }
+
+    fn expand_all(&mut self) {
+        for group in &mut self.file_groups {
+            group.collapsed = false;
+        }
+        self.all_collapsed = false;
+        self.rebuild_flat_rows();
+    }
+
     fn render_toggle_button(
         &self,
         id: &str,
@@ -233,6 +255,10 @@ impl SearchPanel {
     }
 
     fn render_highlighted_line(content: &str, ranges: &[Range<usize>]) -> Div {
+        // Trim leading whitespace and adjust match ranges accordingly
+        let trimmed_start = content.len() - content.trim_start().len();
+        let display_content = content.trim_start();
+
         let mut container = div()
             .flex_1()
             .flex()
@@ -241,21 +267,35 @@ impl SearchPanel {
             .text_size(px(12.0))
             .font_family("Menlo");
 
-        if ranges.is_empty() {
+        if ranges.is_empty() || display_content.is_empty() {
             return container
                 .text_color(SurchTheme::text_primary())
-                .child(content.to_string());
+                .child(display_content.to_string());
         }
 
+        // Adjust ranges to account for trimmed leading whitespace
+        let adjusted_ranges: Vec<Range<usize>> = ranges
+            .iter()
+            .filter_map(|r| {
+                let start = r.start.max(trimmed_start).saturating_sub(trimmed_start);
+                let end = r.end.saturating_sub(trimmed_start).min(display_content.len());
+                if end > start {
+                    Some(start..end)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let mut last_end = 0;
-        for range in ranges {
-            let start = range.start.min(content.len());
-            let end = range.end.min(content.len());
+        for range in &adjusted_ranges {
+            let start = range.start.min(display_content.len());
+            let end = range.end.min(display_content.len());
             if start > last_end {
                 container = container.child(
                     div()
                         .text_color(SurchTheme::text_primary())
-                        .child(content[last_end..start].to_string()),
+                        .child(display_content[last_end..start].to_string()),
                 );
             }
             if end > start {
@@ -265,16 +305,16 @@ impl SearchPanel {
                         .text_color(SurchTheme::text_match())
                         .rounded(px(2.0))
                         .px(px(1.0))
-                        .child(content[start..end].to_string()),
+                        .child(display_content[start..end].to_string()),
                 );
             }
             last_end = end;
         }
-        if last_end < content.len() {
+        if last_end < display_content.len() {
             container = container.child(
                 div()
                     .text_color(SurchTheme::text_primary())
-                    .child(content[last_end..].to_string()),
+                    .child(display_content[last_end..].to_string()),
             );
         }
         container
@@ -341,7 +381,7 @@ impl SearchPanel {
         container
     }
 
-    fn render_status(&self) -> impl IntoElement {
+    fn render_status_and_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut container = div()
             .px(px(12.0))
             .py(px(6.0))
@@ -349,7 +389,8 @@ impl SearchPanel {
             .items_center()
             .gap(px(6.0))
             .text_size(px(11.0))
-            .text_color(SurchTheme::text_secondary());
+            .text_color(SurchTheme::text_secondary())
+            .flex_shrink_0();
 
         if self.is_searching {
             container = container
@@ -365,6 +406,68 @@ impl SearchPanel {
                 self.total_matches,
                 self.file_groups.len()
             ));
+        }
+
+        // Spacer to push toolbar buttons to the right
+        container = container.child(div().flex_1());
+
+        // Toolbar buttons
+        if self.total_matches > 0 {
+            // Refresh search
+            container = container.child(
+                div()
+                    .id("btn-refresh")
+                    .w(px(22.0))
+                    .h(px(22.0))
+                    .rounded(px(3.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(SurchTheme::bg_hover()))
+                    .child(
+                        Icon::new(IconName::Redo)
+                            .size_3()
+                            .text_color(SurchTheme::text_secondary()),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if let Some(ref handler) = this.on_refresh {
+                            handler(window, cx);
+                        }
+                    })),
+            );
+
+            // Collapse/Expand all
+            let all_collapsed = self.all_collapsed;
+            container = container.child(
+                div()
+                    .id("btn-collapse-all")
+                    .w(px(22.0))
+                    .h(px(22.0))
+                    .rounded(px(3.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(SurchTheme::bg_hover()))
+                    .child(
+                        Icon::new(if all_collapsed {
+                            IconName::ChevronsUpDown
+                        } else {
+                            IconName::Minimize
+                        })
+                        .size_3()
+                        .text_color(SurchTheme::text_secondary()),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if all_collapsed {
+                            this.expand_all();
+                        } else {
+                            this.collapse_all();
+                        }
+                        cx.notify();
+                    })),
+            );
         }
 
         container
@@ -385,18 +488,43 @@ impl Render for SearchPanel {
             .border_r_1()
             .border_color(SurchTheme::border());
 
-        // Header
+        // Header with close project button
         panel = panel.child(
             div()
                 .px(px(12.0))
                 .py(px(8.0))
+                .flex()
+                .items_center()
                 .text_size(px(11.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(SurchTheme::text_secondary())
                 .border_b_1()
                 .border_color(SurchTheme::border())
                 .flex_shrink_0()
-                .child("SEARCH"),
+                .child("SEARCH")
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id("btn-close-project")
+                        .w(px(20.0))
+                        .h(px(20.0))
+                        .rounded(px(3.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(SurchTheme::bg_hover()))
+                        .child(
+                            Icon::new(IconName::Close)
+                                .size_3()
+                                .text_color(SurchTheme::text_muted()),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if let Some(ref handler) = this.on_close_project {
+                                handler(window, cx);
+                            }
+                        })),
+                ),
         );
 
         // Input fields — flex_shrink_0 prevents jank when results push against inputs
@@ -412,11 +540,11 @@ impl Render for SearchPanel {
         }
         panel = panel.child(inputs_container);
 
-        // Status bar
+        // Status bar with toolbar buttons
         panel = panel.child(
             div()
                 .flex_shrink_0()
-                .child(self.render_status()),
+                .child(self.render_status_and_toolbar(cx)),
         );
 
         // Virtualized results list using uniform_list

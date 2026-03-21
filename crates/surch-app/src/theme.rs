@@ -52,14 +52,14 @@ impl SurchTheme {
         hsla(0.58, 0.10, 0.95, 1.0)
     }
 
-    /// Labels, line numbers, status — WCAG AA compliant on dark bg
+    /// Labels, line numbers, status — WCAG AA compliant (≥4.5:1 on dark bg)
     pub fn text_secondary() -> Hsla {
-        hsla(0.58, 0.08, 0.60, 1.0)
+        hsla(0.58, 0.08, 0.68, 1.0)
     }
 
-    /// Placeholders, disabled — still readable
+    /// Placeholders, disabled — readable (≥3:1 on dark bg)
     pub fn text_muted() -> Hsla {
-        hsla(0.58, 0.05, 0.45, 1.0)
+        hsla(0.58, 0.05, 0.52, 1.0)
     }
 
     /// Match highlight foreground

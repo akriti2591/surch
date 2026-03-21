@@ -98,7 +98,6 @@ impl PreviewPanel {
                             let display_text = text.trim_end_matches('\n').to_string();
                             (syntect_color_to_hsla(style.foreground), display_text)
                         })
-                        .filter(|(_, text)| !text.is_empty())
                         .collect();
                     highlighted.push(spans);
                 }
@@ -123,6 +122,16 @@ impl PreviewPanel {
                 self.match_pattern = None;
             }
         }
+    }
+
+    pub fn load_empty(&mut self) {
+        self.file_path = None;
+        self.file_content.clear();
+        self.highlighted_lines = Rc::new(Vec::new());
+        self.focus_line = None;
+        self.match_pattern = None;
+        self.actions.clear();
+        self.show_actions_menu = false;
     }
 
     pub fn set_actions(&mut self, actions: Vec<ChannelAction>) {
@@ -273,8 +282,10 @@ impl PreviewPanel {
                     let mut span_container =
                         div().flex_1().flex().flex_row().whitespace_nowrap();
                     for (color, text) in spans {
-                        span_container = span_container
-                            .child(div().text_color(*color).child(text.clone()));
+                        if !text.is_empty() {
+                            span_container = span_container
+                                .child(div().text_color(*color).child(text.clone()));
+                        }
                     }
                     span_container
                 } else {

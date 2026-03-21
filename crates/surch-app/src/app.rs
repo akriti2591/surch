@@ -89,6 +89,26 @@ impl SurchApp {
                 });
             }));
         });
+
+        // Refresh search callback
+        let app_entity = cx.entity().clone();
+        self.search_panel.update(cx, |panel, _cx| {
+            panel.on_refresh = Some(Box::new(move |_window, cx| {
+                app_entity.update(cx, |app, cx| {
+                    app.refresh_search(cx);
+                });
+            }));
+        });
+
+        // Close project callback
+        let app_entity = cx.entity().clone();
+        self.search_panel.update(cx, |panel, _cx| {
+            panel.on_close_project = Some(Box::new(move |_window, cx| {
+                app_entity.update(cx, |app, cx| {
+                    app.close_project(cx);
+                });
+            }));
+        });
     }
 
     fn handle_query_changed(&mut self, values: HashMap<String, String>, cx: &mut Context<Self>) {
@@ -244,6 +264,38 @@ impl SurchApp {
             panel.set_actions(actions);
         });
 
+        cx.notify();
+    }
+
+    fn refresh_search(&mut self, cx: &mut Context<Self>) {
+        // Re-execute the search with current input values (skip debounce)
+        let input_values = self.search_panel.update(cx, |panel, cx| {
+            let mut vals = HashMap::new();
+            for (id, input) in &panel.inputs {
+                vals.insert(id.clone(), input.read(cx).value().to_string());
+            }
+            vals
+        });
+        self.pending_query = Some(input_values);
+        self.execute_search(cx);
+    }
+
+    fn close_project(&mut self, cx: &mut Context<Self>) {
+        // Cancel any in-progress search
+        if let Some(channel) = self.registry.active() {
+            channel.cancel();
+        }
+        self.search_receiver = None;
+        self.workspace_root = None;
+        self.current_result = None;
+
+        self.search_panel.update(cx, |panel, _cx| {
+            panel.clear_results();
+            panel.set_searching(false);
+        });
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.load_empty();
+        });
         cx.notify();
     }
 
