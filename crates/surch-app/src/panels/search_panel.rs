@@ -517,7 +517,7 @@ impl Render for SearchPanel {
                         .child(
                             Icon::new(IconName::Close)
                                 .size_3()
-                                .text_color(SurchTheme::text_muted()),
+                                .text_color(SurchTheme::text_secondary()),
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
                             if let Some(ref handler) = this.on_close_project {

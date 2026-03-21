@@ -115,6 +115,8 @@ These are hard-won lessons. Read before touching GPUI code:
 
 11. **gpui-component re-exports.** `pub use icon::*` and `pub use styled::*` at crate root means `Icon`, `IconName`, `Sizable`, `Size` are all at `gpui_component::`. The `spinner` module is NOT re-exported — use `gpui_component::spinner::Spinner`.
 
+12. **Never swap the view tree during a click handler.** If a click handler changes state that causes `render()` to return a completely different element tree (e.g., setting `workspace_root = None` switches from main view to welcome screen), GPUI panics with `panic_cannot_unwind` inside `handle_view_event` because the clicked element no longer exists. Fix: defer the state change with `cx.spawn(async move |_, cx| { ... }).detach()` so it executes on the next frame.
+
 ## Syntect Gotchas
 
 12. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.

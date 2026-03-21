@@ -281,22 +281,32 @@ impl SurchApp {
     }
 
     fn close_project(&mut self, cx: &mut Context<Self>) {
-        // Cancel any in-progress search
-        if let Some(channel) = self.registry.active() {
-            channel.cancel();
-        }
-        self.search_receiver = None;
-        self.workspace_root = None;
-        self.current_result = None;
+        // Defer the actual state change to avoid crashing GPUI
+        // when the view tree changes during click event processing.
+        let entity = cx.entity().clone();
+        cx.spawn(async move |_, cx| {
+            let _ = cx.update(|cx| {
+                entity.update(cx, |app, cx| {
+                    // Cancel any in-progress search
+                    if let Some(channel) = app.registry.active() {
+                        channel.cancel();
+                    }
+                    app.search_receiver = None;
+                    app.workspace_root = None;
+                    app.current_result = None;
 
-        self.search_panel.update(cx, |panel, _cx| {
-            panel.clear_results();
-            panel.set_searching(false);
-        });
-        self.preview_panel.update(cx, |panel, _cx| {
-            panel.load_empty();
-        });
-        cx.notify();
+                    app.search_panel.update(cx, |panel, _cx| {
+                        panel.clear_results();
+                        panel.set_searching(false);
+                    });
+                    app.preview_panel.update(cx, |panel, _cx| {
+                        panel.load_empty();
+                    });
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
     }
 
     fn handle_action_selected(&mut self, action_id: &str, _cx: &mut Context<Self>) {
