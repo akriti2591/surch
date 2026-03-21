@@ -24,6 +24,10 @@ actions!(
         ToggleCaseSensitive,
         ToggleWholeWord,
         ToggleRegex,
+        SelectNextResult,
+        SelectPreviousResult,
+        OpenInEditor,
+        ClearSearch,
         Quit,
         Cut,
         Copy,
@@ -131,6 +135,17 @@ impl SurchApp {
             panel.on_close_project = Some(Box::new(move |_window, cx| {
                 app_entity.update(cx, |app, cx| {
                     app.close_project(cx);
+                });
+            }));
+        });
+
+        // Replace All callback
+        let app_entity = cx.entity().clone();
+        self.search_panel.update(cx, |panel, _cx| {
+            panel.on_replace_all = Some(Box::new(move |replace_text, _window, cx| {
+                let replace_text = replace_text.clone();
+                app_entity.update(cx, |app, cx| {
+                    app.handle_replace_all(replace_text, cx);
                 });
             }));
         });
@@ -314,6 +329,73 @@ impl SurchApp {
         .detach();
     }
 
+    fn handle_replace_all(&mut self, replace_text: String, cx: &mut Context<Self>) {
+        let workspace = match &self.workspace_root {
+            Some(root) => root.clone(),
+            None => return,
+        };
+
+        // Build the query from current search inputs
+        let input_values = self.search_panel.update(cx, |panel, cx| {
+            let mut vals = HashMap::new();
+            for (id, input) in &panel.inputs {
+                vals.insert(id.clone(), input.read(cx).value().to_string());
+            }
+            vals
+        });
+
+        let find_text = input_values.get("find").cloned().unwrap_or_default();
+        if find_text.is_empty() {
+            return;
+        }
+
+        let (case_sensitive, whole_word, is_regex) =
+            self.search_panel.read(cx).search_options();
+
+        let query = ChannelQuery {
+            fields: input_values,
+            workspace_root: workspace,
+            is_regex,
+            case_sensitive,
+            whole_word,
+        };
+
+        // Cancel any in-progress search before replacing
+        if let Some(channel) = self.registry.active() {
+            channel.cancel();
+        }
+        self.search_receiver = None;
+
+        // Run replace on a background thread
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancelled_clone = cancelled.clone();
+        let replace_text_clone = replace_text.clone();
+
+        std::thread::spawn(move || {
+            let (tx, _rx) = crossbeam_channel::unbounded();
+            let (files_modified, replacements_made) =
+                surch_file_search::engine::run_replace(query, &replace_text_clone, tx, cancelled_clone);
+            eprintln!(
+                "Replace all: {} replacements in {} files",
+                replacements_made, files_modified
+            );
+        });
+
+        // Defer refresh to next frame to let the replace thread finish writing files
+        let entity2 = cx.entity().clone();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
+            let _ = cx.update(|cx| {
+                entity2.update(cx, |app, cx| {
+                    app.refresh_search(cx);
+                });
+            });
+        })
+        .detach();
+    }
+
     fn close_project(&mut self, cx: &mut Context<Self>) {
         // Save workspace state before closing
         self.save_workspace_state(cx);
@@ -412,6 +494,88 @@ impl SurchApp {
         self.search_panel.update(cx, |panel, cx| {
             panel.toggle_regex(window, cx);
         });
+    }
+
+    fn handle_select_next(
+        &mut self,
+        _: &SelectNextResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.select_next(window, cx);
+        });
+    }
+
+    fn handle_select_previous(
+        &mut self,
+        _: &SelectPreviousResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.select_previous(window, cx);
+        });
+    }
+
+    fn handle_open_in_editor(
+        &mut self,
+        _: &OpenInEditor,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        // Open the currently selected result in the default editor
+        if let Some(ref result) = self.current_result {
+            if let Some(channel) = self.registry.active() {
+                let entry = surch_core::channel::ResultEntry {
+                    id: result.id,
+                    file_path: Some(result.file_path.clone()),
+                    line_number: Some(result.line_number),
+                    column: None,
+                    line_content: result.line_content.clone(),
+                    match_ranges: result.match_ranges.clone(),
+                };
+                let actions = channel.actions(&entry);
+                // Use the first available editor action
+                if let Some(action) = actions.first() {
+                    if let Err(e) = channel.execute_action(&action.id, &entry) {
+                        eprintln!("Open in editor error: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_clear_search(
+        &mut self,
+        _: &ClearSearch,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Cancel any in-progress search
+        if let Some(channel) = self.registry.active() {
+            channel.cancel();
+        }
+        self.search_receiver = None;
+
+        // Clear results — defer to avoid GPUI crash
+        let entity = cx.entity().clone();
+        cx.spawn(async move |_, cx| {
+            let _ = cx.update(|cx| {
+                entity.update(cx, |app, cx| {
+                    app.search_panel.update(cx, |panel, _cx| {
+                        panel.clear_results();
+                        panel.set_searching(false);
+                    });
+                    app.current_result = None;
+                    app.preview_panel.update(cx, |panel, _cx| {
+                        panel.load_empty();
+                    });
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
     }
 
     /// Set the active workspace, save to recent history, and load workspace state.
@@ -574,6 +738,10 @@ impl Render for SurchApp {
                 .on_action(cx.listener(Self::handle_toggle_case))
                 .on_action(cx.listener(Self::handle_toggle_word))
                 .on_action(cx.listener(Self::handle_toggle_regex))
+                .on_action(cx.listener(Self::handle_select_next))
+                .on_action(cx.listener(Self::handle_select_previous))
+                .on_action(cx.listener(Self::handle_open_in_editor))
+                .on_action(cx.listener(Self::handle_clear_search))
                 .size_full()
                 .flex()
                 .flex_col()
@@ -655,6 +823,8 @@ impl Render for SurchApp {
             .on_action(cx.listener(Self::handle_toggle_case))
             .on_action(cx.listener(Self::handle_toggle_word))
             .on_action(cx.listener(Self::handle_toggle_regex))
+            .on_action(cx.listener(Self::handle_select_next))
+            .on_action(cx.listener(Self::handle_select_previous))
             .size_full()
             .flex()
             .flex_row()

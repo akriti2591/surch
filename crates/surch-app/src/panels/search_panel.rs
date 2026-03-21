@@ -1,5 +1,6 @@
 use crate::theme::SurchTheme;
 use gpui::*;
+use gpui::ScrollStrategy;
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::spinner::Spinner;
 use gpui_component::{Icon, IconName, Sizable};
@@ -56,12 +57,14 @@ pub struct SearchPanel {
     whole_word: bool,
     is_regex: bool,
     all_collapsed: bool,
+    search_completed: bool,
     pub on_query_changed:
         Option<Box<dyn Fn(HashMap<String, String>, &mut Window, &mut Context<Self>)>>,
     pub on_result_selected:
         Option<Box<dyn Fn(&SearchResultItem, &mut Window, &mut Context<Self>)>>,
     pub on_refresh: Option<Box<dyn Fn(&mut Window, &mut Context<Self>)>>,
     pub on_close_project: Option<Box<dyn Fn(&mut Window, &mut Context<Self>)>>,
+    pub on_replace_all: Option<Box<dyn Fn(String, &mut Window, &mut Context<Self>)>>,
 }
 
 impl SearchPanel {
@@ -104,10 +107,12 @@ impl SearchPanel {
             whole_word: false,
             is_regex: false,
             all_collapsed: false,
+            search_completed: false,
             on_query_changed: None,
             on_result_selected: None,
             on_refresh: None,
             on_close_project: None,
+            on_replace_all: None,
         }
     }
 
@@ -152,6 +157,63 @@ impl SearchPanel {
         self.is_regex = is_regex;
     }
 
+    /// Select the next match row in the results list.
+    pub fn select_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.flat_rows.is_empty() {
+            return;
+        }
+
+        // Find the current selected index in flat_rows
+        let current_idx = self.selected_result.and_then(|selected_id| {
+            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item } if item.id == selected_id))
+        });
+
+        // Find the next MatchRow after current
+        let start = current_idx.map(|i| i + 1).unwrap_or(0);
+        for i in start..self.flat_rows.len() {
+            if let FlatRow::MatchRow { item } = &self.flat_rows[i] {
+                self.selected_result = Some(item.id);
+                // Scroll to make the selected item visible
+                self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
+                // Fire the selection callback
+                if let Some(ref handler) = self.on_result_selected {
+                    handler(item, window, cx);
+                }
+                cx.notify();
+                return;
+            }
+        }
+    }
+
+    /// Select the previous match row in the results list.
+    pub fn select_previous(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.flat_rows.is_empty() {
+            return;
+        }
+
+        let current_idx = self.selected_result.and_then(|selected_id| {
+            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item } if item.id == selected_id))
+        });
+
+        let end = match current_idx {
+            Some(0) | None => return,
+            Some(i) => i,
+        };
+
+        // Find the previous MatchRow before current
+        for i in (0..end).rev() {
+            if let FlatRow::MatchRow { item } = &self.flat_rows[i] {
+                self.selected_result = Some(item.id);
+                self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
+                if let Some(ref handler) = self.on_result_selected {
+                    handler(item, window, cx);
+                }
+                cx.notify();
+                return;
+            }
+        }
+    }
+
     fn on_input_changed(&mut self, _field_id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let values = self.collect_input_values(cx);
         if let Some(ref handler) = self.on_query_changed {
@@ -194,6 +256,7 @@ impl SearchPanel {
         self.selected_result = None;
         self.total_matches = 0;
         self.total_files = 0;
+        self.search_completed = false;
     }
 
     pub fn set_searching(&mut self, searching: bool) {
@@ -234,6 +297,7 @@ impl SearchPanel {
         self.total_files = total_files;
         self.total_matches = total_matches;
         self.is_searching = false;
+        self.search_completed = true;
     }
 
     fn collapse_all(&mut self) {
@@ -372,6 +436,8 @@ impl SearchPanel {
                 .child(field.label.clone()),
         );
 
+        let is_replace = field.id == "replace";
+
         if is_find {
             container = container.child(
                 div()
@@ -405,6 +471,47 @@ impl SearchPanel {
                         cx,
                         |s| &mut s.is_regex,
                     )),
+            );
+        } else if is_replace {
+            container = container.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(gpui_component::input::Input::new(input).w_full()),
+                    )
+                    .child(
+                        div()
+                            .id("btn-replace-all")
+                            .w(px(22.0))
+                            .h(px(22.0))
+                            .rounded(px(3.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(SurchTheme::bg_hover()))
+                            .child(
+                                Icon::new(IconName::Replace)
+                                    .size_4()
+                                    .text_color(SurchTheme::text_heading()),
+                            )
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if let Some(ref handler) = this.on_replace_all {
+                                    // Get the replace text from the input
+                                    let replace_text = this
+                                        .inputs
+                                        .get("replace")
+                                        .map(|input| input.read(cx).value().to_string())
+                                        .unwrap_or_default();
+                                    handler(replace_text, window, cx);
+                                }
+                            })),
+                    ),
             );
         } else {
             container =
@@ -579,6 +686,22 @@ impl Render for SearchPanel {
                 .flex_shrink_0()
                 .child(self.render_status_and_toolbar(cx)),
         );
+
+        // "No results found" empty state
+        if !self.is_searching && self.search_completed && self.total_matches == 0 {
+            panel = panel.child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(12.0))
+                    .text_color(SurchTheme::text_muted())
+                    .child("No results found"),
+            );
+            return panel;
+        }
 
         // Virtualized results list using uniform_list
         let row_count = self.flat_rows.len();

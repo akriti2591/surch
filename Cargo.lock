@@ -5594,6 +5594,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
+ "dirs 5.0.1",
  "gpui",
  "gpui-component",
  "rust-embed",
@@ -5610,6 +5611,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
  "serde",
+ "serde_json",
  "toml 0.8.23",
 ]
 
@@ -5623,8 +5625,10 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "num_cpus",
  "regex",
  "surch-core",
+ "tempfile",
 ]
 
 [[package]]

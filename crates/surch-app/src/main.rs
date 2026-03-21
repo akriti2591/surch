@@ -6,7 +6,8 @@ mod sidebar;
 mod theme;
 
 use app::{
-    CloseProject, Copy, Cut, FocusFind, OpenFolder, Paste, Quit, SelectAll, SurchApp,
+    ClearSearch, CloseProject, Copy, Cut, FocusFind, OpenFolder, OpenInEditor, Paste,
+    Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
     ToggleCaseSensitive, ToggleRegex, ToggleWholeWord,
 };
 use assets::SurchAssets;
@@ -26,6 +27,10 @@ fn main() {
             KeyBinding::new("alt-c", ToggleCaseSensitive, Some("surch")),
             KeyBinding::new("alt-w", ToggleWholeWord, Some("surch")),
             KeyBinding::new("alt-r", ToggleRegex, Some("surch")),
+            KeyBinding::new("down", SelectNextResult, Some("surch")),
+            KeyBinding::new("up", SelectPreviousResult, Some("surch")),
+            KeyBinding::new("cmd-shift-enter", OpenInEditor, Some("surch")),
+            KeyBinding::new("escape", ClearSearch, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -64,6 +69,11 @@ fn main() {
                 name: "Find".into(),
                 items: vec![
                     MenuItem::action("Find", FocusFind),
+                    MenuItem::action("Clear Search", ClearSearch),
+                    MenuItem::separator(),
+                    MenuItem::action("Next Result", SelectNextResult),
+                    MenuItem::action("Previous Result", SelectPreviousResult),
+                    MenuItem::action("Open in Editor", OpenInEditor),
                     MenuItem::separator(),
                     MenuItem::action("Toggle Case Sensitive", ToggleCaseSensitive),
                     MenuItem::action("Toggle Whole Word", ToggleWholeWord),

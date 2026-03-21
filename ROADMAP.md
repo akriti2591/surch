@@ -55,7 +55,7 @@ Fix what's broken. Make the app usable for daily work.
 **Files:** `search_panel.rs`, `app.rs`
 
 #### 1.5 Keyboard Shortcuts ✅
-**Status:** Implemented — Cmd+O, Cmd+W, Cmd+F, Cmd+Q, Alt+C, Alt+W, Alt+R. Uses GPUI `actions!()` macro, `KeyBinding::new()`, `key_context("surch")`, and `on_action(cx.listener())`.
+**Status:** Implemented — Cmd+O, Cmd+W, Cmd+F, Cmd+Q, Alt+C, Alt+W, Alt+R, Up/Down arrows for result navigation, Cmd+Shift+Enter to open in editor, Escape to clear search. Uses GPUI `actions!()` macro, `KeyBinding::new()`, `key_context("surch")`, and `on_action(cx.listener())`.
 **Work:** Register via GPUI `actions!()` macro and key bindings:
 
 | Shortcut | Action |
@@ -104,8 +104,8 @@ Make the app feel professional. Implement the full replace workflow.
 
 ### P1 Features
 
-#### 2.1 Replace All Button
-**Status:** Replace input field exists but there is no "Replace All" action.
+#### 2.1 Replace All Button ✅
+**Status:** Implemented — Replace All icon button next to replace input, calls `engine::run_replace()` on background thread, auto-refreshes search after completion.
 **UX Behavior:** A button (icon: double-page replace icon, or text "Replace All") next to the replace input field. Clicking it replaces every match across every file in the current result set with the replacement text. Before executing:
 - Show a confirmation dialog: "Replace N occurrences across M files?" with Cancel / Replace buttons.
 - Replacements are performed file-by-file on a background thread, streaming progress events back to the UI.
@@ -227,7 +227,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 |---|---|
 | **File** | Open Folder (`Cmd+O`), Close Project (`Cmd+W`), Quit (`Cmd+Q`) |
 | **Edit** | Cut, Copy, Paste, Select All, Find (`Cmd+F`) |
-| **View** | Toggle Sidebar, Toggle Replace, Collapse All Results |
+| **View** | Toggle Sidebar, Toggle Replace, Collapse All Results, Word Wrap, Zoom In/Out/Reset |
+| **Go** | Go to Line (`Cmd+G`) |
 | **Help** | About Surch |
 
 **Complexity:** M
@@ -272,6 +273,114 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Dependencies:** Replace All (2.1)
 **Files:** `search_panel.rs`
+
+#### 2.13 Monokai Pro Theme + Theming System
+**Status:** Not implemented. Currently hardcoded to One Dark-inspired colors in `theme.rs`.
+**UX Behavior:** Surch should support multiple color themes, switchable at runtime (like Zed's theme system). The default theme should be **Monokai Pro** — a professional, high-contrast dark theme widely regarded as best-in-class for code readability.
+**Implementation:**
+- Define a `Theme` trait or struct in `surch-core` that contains all color tokens (bg_primary, text_primary, accent, match_bg, etc.).
+- Create theme files as structured data (TOML, JSON, or Rust structs). Start with two themes: **Monokai Pro** (default) and **One Dark** (current).
+- `SurchTheme` methods become dynamic, reading from the active theme instead of returning hardcoded values.
+- Each theme also needs a corresponding `syntect` `.tmTheme` file for syntax highlighting colors. Monokai Pro uses its own distinct palette for syntax tokens.
+- Theme switching should be instant — update the active theme reference and call `cx.notify()` to re-render everything.
+- Store the user's theme preference in `config.toml`.
+
+**Monokai Pro palette reference:**
+| Token | Color | Hex |
+|---|---|---|
+| Background | Dark charcoal | `#2d2a2e` |
+| Surface | Slightly lighter | `#403e41` |
+| Text | Warm white | `#fcfcfa` |
+| Comment/muted | Grey | `#727072` |
+| Accent (yellow) | Gold | `#ffd866` |
+| String (green) | Lime | `#a9dc76` |
+| Keyword (pink) | Magenta | `#ff6188` |
+| Function (blue) | Sky | `#78dce8` |
+| Number (purple) | Violet | `#ab9df2` |
+| Type (orange) | Orange | `#fc9867` |
+
+**Complexity:** L
+**Dependencies:** Settings UI (4.1) for theme picker, or standalone menu item
+**Files:** `theme.rs` (refactor to trait/struct), new `themes/` module, `config.rs`, `preview_panel.rs` (syntect theme)
+
+#### 2.14 Custom Themed Title Bar
+**Status:** Using native macOS title bar via `TitlebarOptions`. It doesn't respect the app's color theme.
+**UX Behavior:** Replace the native macOS title bar with a custom-drawn title bar that matches the app's theme, similar to how Zed renders its title bar. The title bar should:
+- Match the app's background color (e.g., Monokai Pro's dark charcoal)
+- Show the workspace name / folder name as the window title
+- Include the native macOS traffic light buttons (close/minimize/fullscreen) — these can be embedded in a custom title bar via `TitlebarOptions { appears_transparent: true }`
+- Optional: show breadcrumb-style path to currently previewed file
+
+**Implementation:**
+- Set `TitlebarOptions { appears_transparent: true, traffic_light_position: Some(point(px(8.0), px(8.0))) }` to get transparent title bar with positioned traffic lights.
+- Render a custom title bar div at the top of the root view that blends seamlessly with the sidebar/search panel.
+- The title bar height should be ~28-32px (matching macOS standard).
+**Complexity:** M
+**Files:** `main.rs` (TitlebarOptions), `app.rs` (render custom title bar div)
+
+#### 2.15 Preview Pane Zoom (Font Size +/-)
+**Status:** Not implemented. Preview pane uses hardcoded Menlo 14px.
+**UX Behavior:** `Cmd+=` (or `Cmd++`) increases the preview pane font size. `Cmd+-` decreases it. `Cmd+0` resets to default (14px). The zoom level should be shown briefly as an overlay ("120%") and then fade. Font size range: 8px – 32px. Zoom level persists per session (optionally per workspace in `state.json`).
+**Implementation:**
+- Add `preview_font_size: f32` to `SurchApp` state (default 14.0).
+- Add `ZoomIn`, `ZoomOut`, `ZoomReset` actions with keybindings.
+- Pass font size to `PreviewPanel` — it already uses a font size in its render method.
+- Store in workspace state or global config.
+**Complexity:** S
+**Files:** `app.rs`, `preview_panel.rs`, `main.rs` (keybindings)
+
+#### 2.16 Word Wrap Toggle
+**Status:** Not implemented. Preview pane lines extend beyond visible width.
+**UX Behavior:** A toggle in the menu bar (View > Word Wrap) and/or toolbar that wraps long lines in the preview pane to the panel width. When word wrap is on, lines that exceed the panel width wrap to the next visual line (soft wrap). Line numbers still show the original line number (no duplicate line numbers for wrapped lines). Default: off (matching VS Code's default).
+**Implementation:**
+- GPUI's text rendering supports `.whitespace_normal()` for wrapping. Toggle between `.whitespace_nowrap()` (current) and `.whitespace_normal()` on the code line divs in `preview_panel.rs`.
+- Note: `uniform_list` assumes uniform item heights. With word wrap, line heights vary. This may require switching to `list` (variable height) or computing wrapped line heights.
+- Store preference in config.
+**Complexity:** M
+**Dependencies:** May require variable-height list instead of `uniform_list`
+**Files:** `preview_panel.rs`, `app.rs` (menu item + action)
+
+#### 2.17 Go to Line
+**Status:** Not implemented.
+**UX Behavior:** `Cmd+G` opens a small input overlay (like VS Code's "Go to Line" dialog) in the preview pane. User types a line number, presses Enter, and the preview scrolls to that line and highlights it. Escape dismisses the overlay.
+**Implementation:**
+- Add a `GoToLine` action with `Cmd+G` keybinding.
+- Render a floating input div at the top of the preview pane when active.
+- On submit, call `scroll_to_item(line_number - 1)` on the preview's `uniform_list` scroll handle.
+**Complexity:** S
+**Files:** `preview_panel.rs`, `app.rs`, `main.rs`
+
+#### 2.18 Find in Preview (Cmd+F in Preview Pane)
+**Status:** Not implemented.
+**UX Behavior:** When the preview pane is focused, `Cmd+F` opens a find bar at the top of the preview pane (distinct from the main search panel). Features:
+- Incremental search — highlights all matches in the preview as user types
+- `Enter` / `Shift+Enter` to jump between matches
+- Match count indicator (e.g., "3 of 12")
+- `Escape` to dismiss
+- Case sensitive / regex toggles (mini versions)
+
+This is essential for reviewing search results — users frequently need to find specific text within a file they're previewing.
+**Implementation:**
+- Add find state to `PreviewPanel`: `find_query`, `find_matches: Vec<usize>` (line indices), `current_match_index`.
+- Reuse the same highlight rendering logic from search results.
+- Find bar is a small floating div with an input, match count, and up/down buttons.
+**Complexity:** M
+**Dependencies:** None
+**Files:** `preview_panel.rs`
+
+#### 2.19 Design System & Consistency
+**Status:** No formal design system. Colors, spacing, typography, and component patterns are ad-hoc.
+**Research needed:** Audit the current UI against best practices from Zed, VS Code, and Figma's design systems. Establish:
+- **Spacing scale** — consistent 4px grid (4, 8, 12, 16, 24, 32, 48px)
+- **Typography scale** — defined sizes for headings, body, caption, code (e.g., 10, 11, 12, 13, 14, 16, 20px)
+- **Component library** — standardized button, icon button, input, toggle, badge, tooltip, dropdown, overlay components with consistent sizing, padding, border radius, and hover/active/disabled states
+- **Color token naming** — semantic naming (e.g., `surface.primary`, `text.default`, `border.subtle`) instead of implementation-specific names
+- **Icon sizing** — standardized icon sizes (12, 14, 16, 20, 24px) that align with text sizes
+- **Animation/transition** — hover transition timing, fade durations
+
+The design system should be documented and enforced through a component module in `surch-app/src/components/`.
+**Complexity:** L
+**Files:** New `components/` module, `theme.rs` (refactor), documentation
 
 ---
 
@@ -333,15 +442,18 @@ Future improvements and new capabilities.
 ### P2 Features
 
 #### 4.1 Settings UI
-Settings panel accessible from sidebar or menu bar:
-- Default editor selection
-- Theme preference (dark/light — future)
-- Excluded directories (global excludes beyond .gitignore)
-- Max results limit
-- Debounce delay
-- Recent files limit
+Settings panel accessible from sidebar or menu bar. Must be configurable on the fly (changes take effect immediately, no restart). Key settings:
+- **Default editor selection** — dropdown of detected editors
+- **Theme selection** — switch between themes (Monokai Pro, One Dark, etc.)
+- **Font size** — preview pane and result list font sizes
+- **Tab size** — spaces per tab for preview rendering
+- **Word wrap** — toggle for preview pane
+- **Excluded directories** — global excludes beyond .gitignore
+- **Max results limit** — cap on search results
+- **Debounce delay** — ms to wait before auto-searching
+- **Recent files limit** — max recent workspaces on welcome screen
 
-Config infra already exists in `surch-core/src/config.rs`.
+Config infra already exists in `surch-core/src/config.rs`. Settings changes should persist to disk immediately.
 **Complexity:** L
 
 #### 4.2 Multi-root Workspace
@@ -422,18 +534,25 @@ Phase 1 — Fix what's broken (Alpha):
   Keyboard shortcuts                                (M) — Week 2-3
 
 Phase 2 — Replace workflow + polish (Beta):
-  Replace All button                                (L) — Week 4-5
+  Replace All button                          ✅     (L) — Done
   Replace: Preserve Case                            (M) — Week 5
   Replace Preview (inline diff)                     (M) — Week 6
   Panel resizing (draggable divider)                (M) — Week 6
   Search result text truncation                     (S) — Week 6
-  Fuzzy finding (cross-channel)                      (M) — Week 6-7
+  Fuzzy finding (cross-channel)                     (M) — Week 6-7
   View as Tree toggle                               (L) — Week 7
-  History / Recently Opened                         (M) — Week 7
-  Close Project                                     (S) — Week 7
+  History / Recently Opened               ✅         (M) — Done
+  Close Project                            ✅        (S) — Done
   UI polish pass                                    (M) — Week 8
-  Menu bar                                          (M) — Week 8
+  Menu bar                                 ✅        (M) — Done
   Sidebar icons                                     (S) — Week 8
+  Monokai Pro theme + theming system                (L) — Week 9
+  Custom themed title bar                           (M) — Week 9
+  Preview pane zoom (Cmd+/Cmd-)                     (S) — Week 10
+  Word wrap toggle                                  (M) — Week 10
+  Go to line (Cmd+G)                                (S) — Week 10
+  Find in preview (Cmd+F)                           (M) — Week 10-11
+  Design system & consistency                       (L) — Week 11-12
 
 Phase 3 — Ship v1.0:
   Test suite                                        (L) — Week 9-10

@@ -1,4 +1,4 @@
-mod engine;
+pub mod engine;
 
 use crossbeam_channel::Sender;
 use std::process::Command;
@@ -52,6 +52,19 @@ impl FileSearchChannel {
         });
 
         actions
+    }
+
+    /// Run replace all: find all matches and replace them in-place.
+    /// Returns (files_modified, replacements_made).
+    pub fn replace_all(
+        &self,
+        query: ChannelQuery,
+        replacement: &str,
+        tx: Sender<SearchEvent>,
+    ) -> (usize, usize) {
+        self.cancelled.store(false, Ordering::SeqCst);
+        let cancelled = self.cancelled.clone();
+        engine::run_replace(query, replacement, tx, cancelled)
     }
 }
 
