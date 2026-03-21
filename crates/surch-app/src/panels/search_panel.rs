@@ -1,7 +1,6 @@
 use crate::theme::SurchTheme;
 use gpui::*;
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::scroll::ScrollableElement;
 use gpui_component::spinner::Spinner;
 use gpui_component::{Icon, IconName, Sizable};
 use std::collections::HashMap;
@@ -28,16 +27,31 @@ pub struct FileGroup {
     pub collapsed: bool,
 }
 
+/// A flattened row for the virtualized list — either a file header or a match.
+#[derive(Clone)]
+enum FlatRow {
+    FileHeader {
+        group_idx: usize,
+        relative_path: String,
+        match_count: usize,
+        collapsed: bool,
+    },
+    MatchRow {
+        item: SearchResultItem,
+    },
+}
+
 pub struct SearchPanel {
     input_fields: Vec<InputFieldSpec>,
     inputs: HashMap<String, Entity<InputState>>,
     file_groups: Vec<FileGroup>,
+    flat_rows: Vec<FlatRow>,
     selected_result: Option<u64>,
     total_matches: usize,
     total_files: usize,
     is_searching: bool,
     workspace_root: Option<PathBuf>,
-    scroll_handle: ScrollHandle,
+    results_scroll_handle: UniformListScrollHandle,
     case_sensitive: bool,
     whole_word: bool,
     is_regex: bool,
@@ -76,12 +90,13 @@ impl SearchPanel {
             input_fields,
             inputs,
             file_groups: Vec::new(),
+            flat_rows: Vec::new(),
             selected_result: None,
             total_matches: 0,
             total_files: 0,
             is_searching: false,
             workspace_root: None,
-            scroll_handle: ScrollHandle::new(),
+            results_scroll_handle: UniformListScrollHandle::default(),
             case_sensitive: false,
             whole_word: false,
             is_regex: false,
@@ -114,8 +129,29 @@ impl SearchPanel {
         values
     }
 
+    /// Rebuild the flat row list from file_groups.
+    fn rebuild_flat_rows(&mut self) {
+        self.flat_rows.clear();
+        for (group_idx, group) in self.file_groups.iter().enumerate() {
+            self.flat_rows.push(FlatRow::FileHeader {
+                group_idx,
+                relative_path: group.relative_path.clone(),
+                match_count: group.matches.len(),
+                collapsed: group.collapsed,
+            });
+            if !group.collapsed {
+                for item in &group.matches {
+                    self.flat_rows.push(FlatRow::MatchRow {
+                        item: item.clone(),
+                    });
+                }
+            }
+        }
+    }
+
     pub fn clear_results(&mut self) {
         self.file_groups.clear();
+        self.flat_rows.clear();
         self.selected_result = None;
         self.total_matches = 0;
         self.total_files = 0;
@@ -152,6 +188,7 @@ impl SearchPanel {
             });
         }
         self.total_matches += 1;
+        self.rebuild_flat_rows();
     }
 
     pub fn set_complete(&mut self, total_files: usize, total_matches: usize) {
@@ -333,121 +370,6 @@ impl SearchPanel {
         container
     }
 
-    fn render_file_group(
-        &self,
-        group_idx: usize,
-        group: &FileGroup,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let match_count = group.matches.len();
-        let collapsed = group.collapsed;
-        let relative_path = group.relative_path.clone();
-
-        let mut container = div().w_full();
-
-        // File header
-        container = container.child(
-            div()
-                .id(ElementId::Name(format!("file-group-{}", group_idx).into()))
-                .w_full()
-                .px(px(12.0))
-                .py(px(5.0))
-                .flex()
-                .items_center()
-                .gap_1()
-                .cursor_pointer()
-                .bg(SurchTheme::bg_surface())
-                .hover(|s| s.bg(SurchTheme::bg_hover()))
-                .on_click(cx.listener(move |this, _, _window, cx| {
-                    if let Some(group) = this.file_groups.get_mut(group_idx) {
-                        group.collapsed = !group.collapsed;
-                    }
-                    cx.notify();
-                }))
-                .child(
-                    Icon::new(if collapsed {
-                        IconName::ChevronRight
-                    } else {
-                        IconName::ChevronDown
-                    })
-                    .size_3()
-                    .text_color(SurchTheme::text_muted()),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(SurchTheme::text_heading())
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .child(relative_path),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(SurchTheme::text_secondary())
-                        .px(px(6.0))
-                        .py(px(1.0))
-                        .rounded(px(8.0))
-                        .bg(SurchTheme::bg_hover())
-                        .child(format!("{}", match_count)),
-                ),
-        );
-
-        // Match lines (if not collapsed)
-        if !collapsed {
-            for match_item in &group.matches {
-                let is_selected = self.selected_result == Some(match_item.id);
-                let item_clone = match_item.clone();
-                let line_num = match_item.line_number;
-                let content = match_item.line_content.clone();
-                let match_ranges = match_item.match_ranges.clone();
-                let id = match_item.id;
-
-                let mut row = div()
-                    .id(ElementId::Name(format!("result-{}", id).into()))
-                    .w_full()
-                    .pl(px(28.0))
-                    .pr(px(12.0))
-                    .py(px(4.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(SurchTheme::bg_hover()))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.selected_result = Some(id);
-                        if let Some(ref handler) = this.on_result_selected {
-                            handler(&item_clone, window, cx);
-                        }
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .font_family("SF Mono")
-                            .text_color(SurchTheme::text_secondary())
-                            .min_w(px(36.0))
-                            .flex()
-                            .justify_end()
-                            .child(format!("{}", line_num)),
-                    )
-                    .child(Self::render_highlighted_line(&content, &match_ranges));
-
-                if is_selected {
-                    row = row
-                        .bg(SurchTheme::bg_selected())
-                        .border_l_2()
-                        .border_color(SurchTheme::accent());
-                }
-
-                container = container.child(row);
-            }
-        }
-
-        container
-    }
 }
 
 impl Render for SearchPanel {
@@ -497,20 +419,145 @@ impl Render for SearchPanel {
                 .child(self.render_status()),
         );
 
-        // Results list — render directly without cloning
-        let mut results_container = div()
+        // Virtualized results list using uniform_list
+        let row_count = self.flat_rows.len();
+        let rows_snapshot = self.flat_rows.clone();
+        let selected = self.selected_result;
+
+        panel = panel.child(
+            uniform_list("search-results", row_count, {
+                let cx_listener = cx.entity().clone();
+                move |range, _window, _cx| {
+                    let mut items = Vec::new();
+                    for i in range {
+                        let row = &rows_snapshot[i];
+                        match row {
+                            FlatRow::FileHeader {
+                                group_idx,
+                                relative_path,
+                                match_count,
+                                collapsed,
+                            } => {
+                                let group_idx = *group_idx;
+                                let collapsed = *collapsed;
+                                let entity = cx_listener.clone();
+                                items.push(
+                                    div()
+                                        .id(ElementId::Name(
+                                            format!("file-group-{}", group_idx).into(),
+                                        ))
+                                        .w_full()
+                                        .px(px(12.0))
+                                        .py(px(5.0))
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .cursor_pointer()
+                                        .bg(SurchTheme::bg_surface())
+                                        .hover(|s| s.bg(SurchTheme::bg_hover()))
+                                        .on_click(move |_, _, cx| {
+                                            entity.update(cx, |this, cx| {
+                                                if let Some(group) =
+                                                    this.file_groups.get_mut(group_idx)
+                                                {
+                                                    group.collapsed = !group.collapsed;
+                                                }
+                                                this.rebuild_flat_rows();
+                                                cx.notify();
+                                            });
+                                        })
+                                        .child(
+                                            Icon::new(if collapsed {
+                                                IconName::ChevronRight
+                                            } else {
+                                                IconName::ChevronDown
+                                            })
+                                            .size_3()
+                                            .text_color(SurchTheme::text_muted()),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .text_size(px(12.0))
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(SurchTheme::text_heading())
+                                                .overflow_hidden()
+                                                .whitespace_nowrap()
+                                                .child(relative_path.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(SurchTheme::text_secondary())
+                                                .px(px(6.0))
+                                                .py(px(1.0))
+                                                .rounded(px(8.0))
+                                                .bg(SurchTheme::bg_hover())
+                                                .child(format!("{}", match_count)),
+                                        ),
+                                );
+                            }
+                            FlatRow::MatchRow { item, .. } => {
+                                let is_selected = selected == Some(item.id);
+                                let item_clone = item.clone();
+                                let line_num = item.line_number;
+                                let content = item.line_content.clone();
+                                let match_ranges = item.match_ranges.clone();
+                                let id = item.id;
+                                let entity = cx_listener.clone();
+
+                                let mut row = div()
+                                    .id(ElementId::Name(format!("result-{}", id).into()))
+                                    .w_full()
+                                    .pl(px(28.0))
+                                    .pr(px(12.0))
+                                    .py(px(4.0))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(SurchTheme::bg_hover()))
+                                    .on_click(move |_, window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.selected_result = Some(id);
+                                            if let Some(ref handler) = this.on_result_selected {
+                                                handler(&item_clone, window, cx);
+                                            }
+                                            cx.notify();
+                                        });
+                                    })
+                                    .child(
+                                        div()
+                                            .text_size(px(11.0))
+                                            .font_family("SF Mono")
+                                            .text_color(SurchTheme::text_secondary())
+                                            .min_w(px(36.0))
+                                            .flex()
+                                            .justify_end()
+                                            .child(format!("{}", line_num)),
+                                    )
+                                    .child(SearchPanel::render_highlighted_line(
+                                        &content,
+                                        &match_ranges,
+                                    ));
+
+                                if is_selected {
+                                    row = row
+                                        .bg(SurchTheme::bg_selected())
+                                        .border_l_2()
+                                        .border_color(SurchTheme::accent());
+                                }
+
+                                items.push(row);
+                            }
+                        }
+                    }
+                    items
+                }
+            })
             .flex_1()
-            .overflow_y_scrollbar()
-            .w_full();
-
-        let num_groups = self.file_groups.len();
-        for group_idx in 0..num_groups {
-            let group = &self.file_groups[group_idx];
-            results_container =
-                results_container.child(self.render_file_group(group_idx, group, cx));
-        }
-
-        panel = panel.child(results_container);
+            .track_scroll(self.results_scroll_handle.clone()),
+        );
 
         panel
     }

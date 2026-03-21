@@ -71,14 +71,21 @@ impl PreviewPanel {
 
                 let mut highlighted = Vec::with_capacity(raw_lines.len());
                 for line in &raw_lines {
+                    // highlight_line expects lines ending with \n when using
+                    // load_defaults_newlines(). Without \n, syntect's parser
+                    // state drifts and highlighting breaks after ~100 lines.
+                    let line_with_newline = format!("{}\n", line);
                     let ranges = h
-                        .highlight_line(line, &self.syntax_set)
+                        .highlight_line(&line_with_newline, &self.syntax_set)
                         .unwrap_or_default();
                     let spans: Vec<(Hsla, String)> = ranges
                         .into_iter()
                         .map(|(style, text)| {
-                            (syntect_color_to_hsla(style.foreground), text.to_string())
+                            // Strip the trailing \n we added for display
+                            let display_text = text.trim_end_matches('\n').to_string();
+                            (syntect_color_to_hsla(style.foreground), display_text)
                         })
+                        .filter(|(_, text)| !text.is_empty())
                         .collect();
                     highlighted.push(spans);
                 }

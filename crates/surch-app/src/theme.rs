@@ -37,7 +37,7 @@ impl SurchTheme {
 
     /// Preview focus line highlight
     pub fn bg_focus_line() -> Hsla {
-        hsla(0.15, 0.40, 0.18, 0.35)
+        hsla(0.15, 0.40, 0.22, 0.45)
     }
 
     // === Text ===
@@ -52,14 +52,14 @@ impl SurchTheme {
         hsla(0.58, 0.10, 0.95, 1.0)
     }
 
-    /// Labels, line numbers, status
+    /// Labels, line numbers, status — WCAG AA compliant on dark bg
     pub fn text_secondary() -> Hsla {
-        hsla(0.58, 0.05, 0.50, 1.0)
+        hsla(0.58, 0.08, 0.60, 1.0)
     }
 
-    /// Placeholders, disabled, very dim
+    /// Placeholders, disabled — still readable
     pub fn text_muted() -> Hsla {
-        hsla(0.58, 0.05, 0.35, 1.0)
+        hsla(0.58, 0.05, 0.45, 1.0)
     }
 
     /// Match highlight foreground
@@ -81,7 +81,7 @@ impl SurchTheme {
 
     /// Match highlight background
     pub fn match_bg() -> Hsla {
-        hsla(0.10, 0.70, 0.35, 0.45)
+        hsla(0.10, 0.70, 0.35, 0.55)
     }
 
     /// Toggle button active background (accent at 30% alpha)
