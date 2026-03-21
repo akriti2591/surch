@@ -4,6 +4,7 @@ use crate::sidebar::Sidebar;
 use crate::theme::SurchTheme;
 use crossbeam_channel::{Receiver, TryRecvError};
 use gpui::*;
+use gpui::prelude::FluentBuilder;
 use gpui_component::{Icon, IconName};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -51,7 +52,15 @@ pub struct SurchApp {
     current_result: Option<SearchResultItem>,
     focus_handle: FocusHandle,
     app_config: AppConfig,
+    /// Width of the search panel in pixels (draggable divider).
+    search_panel_width: f32,
+    /// X position when divider drag started, or None if not dragging.
+    divider_drag_start: Option<(f32, f32)>, // (mouse_x, panel_width_at_start)
 }
+
+const MIN_SEARCH_PANEL_WIDTH: f32 = 200.0;
+const MAX_SEARCH_PANEL_WIDTH: f32 = 600.0;
+const DEFAULT_SEARCH_PANEL_WIDTH: f32 = 340.0;
 
 impl SurchApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -87,6 +96,8 @@ impl SurchApp {
             current_result: None,
             focus_handle: cx.focus_handle(),
             app_config,
+            search_panel_width: DEFAULT_SEARCH_PANEL_WIDTH,
+            divider_drag_start: None,
         };
 
         app.setup_callbacks(window, cx);
@@ -201,6 +212,7 @@ impl SurchApp {
             is_regex,
             case_sensitive,
             whole_word,
+            ..Default::default()
         };
 
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -362,6 +374,7 @@ impl SurchApp {
             is_regex,
             case_sensitive,
             whole_word,
+            ..Default::default()
         };
 
         // Cancel any in-progress search before replacing
@@ -506,10 +519,6 @@ impl SurchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Don't intercept arrow keys when any input field has focus
-        if self.any_input_focused(window, cx) {
-            return;
-        }
         self.search_panel.update(cx, |panel, cx| {
             panel.select_next(window, cx);
         });
@@ -521,10 +530,6 @@ impl SurchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Don't intercept arrow keys when any input field has focus
-        if self.any_input_focused(window, cx) {
-            return;
-        }
         self.search_panel.update(cx, |panel, cx| {
             panel.select_previous(window, cx);
         });
@@ -821,6 +826,7 @@ impl SurchApp {
 
 impl SurchApp {
     /// Returns true if any input field (search panel or preview panel) has focus.
+    #[allow(dead_code)]
     fn any_input_focused(&self, window: &Window, cx: &App) -> bool {
         self.search_panel.read(cx).any_input_focused(window, cx)
             || self.preview_panel.read(cx).any_input_focused(window, cx)
@@ -931,7 +937,10 @@ impl Render for SurchApp {
                 .into_any_element();
         }
 
-        self.root_div(cx)
+        let panel_width = self.search_panel_width;
+        let is_dragging = self.divider_drag_start.is_some();
+
+        let mut main_content = self.root_div(cx)
             .size_full()
             .flex()
             .flex_col()
@@ -944,9 +953,61 @@ impl Render for SurchApp {
                     .flex_row()
                     .overflow_hidden()
                     .child(self.sidebar.clone())
-                    .child(self.search_panel.clone())
+                    // Search panel with dynamic width
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .w(px(panel_width))
+                            .h_full()
+                            .overflow_hidden()
+                            .border_r_1()
+                            .border_color(SurchTheme::border())
+                            .child(self.search_panel.clone()),
+                    )
+                    // Draggable divider
+                    .child(
+                        div()
+                            .id("panel-divider")
+                            .w(px(4.0))
+                            .h_full()
+                            .flex_shrink_0()
+                            .cursor(CursorStyle::ResizeLeftRight)
+                            .hover(|s| s.bg(SurchTheme::accent()))
+                            .when(is_dragging, |s| s.bg(SurchTheme::accent()))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, event: &MouseDownEvent, _window, _cx| {
+                                    let x: f32 = event.position.x.into();
+                                    this.divider_drag_start =
+                                        Some((x, this.search_panel_width));
+                                }),
+                            )
+                    )
                     .child(self.preview_panel.clone()),
-            )
-            .into_any_element()
+            );
+
+        // Track mouse move/up on the root div during drag
+        if is_dragging {
+            main_content = main_content
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                    if let Some((start_x, start_width)) = this.divider_drag_start {
+                        let current_x: f32 = event.position.x.into();
+                        let delta = current_x - start_x;
+                        let new_width = (start_width + delta)
+                            .clamp(MIN_SEARCH_PANEL_WIDTH, MAX_SEARCH_PANEL_WIDTH);
+                        this.search_panel_width = new_width;
+                        cx.notify();
+                    }
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _window, cx| {
+                        this.divider_drag_start = None;
+                        cx.notify();
+                    }),
+                );
+        }
+
+        main_content.into_any_element()
     }
 }

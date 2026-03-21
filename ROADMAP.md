@@ -22,8 +22,8 @@ Fix what's broken. Make the app usable for daily work.
 
 ### P0 Bugs
 
-#### 1.1 Fix Scroll Performance
-**Status:** Broken — scroll is janky in both search results and preview panel.
+#### 1.1 Fix Scroll Performance ✅
+**Status:** Fixed — both search results and preview panel use `uniform_list` for virtualized rendering.
 **Problem:** The search results panel renders all file groups in a single `div` with `overflow_y_scrollbar()`. For large result sets (500+ matches), this means hundreds of DOM elements are created every frame. The preview panel already uses `uniform_list` but still stutters on large files.
 **Fix:**
 - Replace the results list `for` loop in `search_panel.rs` `render()` with `uniform_list`. This requires flattening `file_groups` into a single indexed list of "rows" (file headers + match lines) so `uniform_list` can address them by index range. Each row type (header vs. match) renders differently based on its index.
@@ -126,8 +126,8 @@ Make the app feel professional. Implement the full replace workflow.
 **Dependencies:** Match highlighting (done), replace input field (exists)
 **Files:** `channel.rs`, `surch-file-search/src/lib.rs`, `app.rs`, `search_panel.rs`
 
-#### 2.2 Replace: Preserve Case Toggle
-**Status:** Not implemented.
+#### 2.2 Replace: Preserve Case Toggle ✅
+**Status:** Implemented — `apply_case_pattern()` utility in `surch-core/channel.rs`, `preserve_case` field on `ChannelQuery`, wired into `run_replace()` engine. UI toggle button still needed.
 **UX Behavior:** A toggle button (AB icon with a small case indicator) on the replace input row, next to the replace field. When enabled, the replacement text automatically adapts to match the case pattern of each individual match. The rules (matching VS Code's behavior):
 
 | Original match | Replacement text | Result |
@@ -186,8 +186,8 @@ In tree view, directory nodes are collapsible. Collapsing a directory hides all 
 **Dependencies:** Collapse All (1.7) — shares collapse/expand UX patterns
 **Files:** `search_panel.rs` (or new `tree_view.rs` component)
 
-#### 2.4 Panel Resizing (Draggable Divider)
-**Status:** Not implemented. Search panel is fixed at 340px, preview takes remaining space.
+#### 2.4 Panel Resizing (Draggable Divider) ✅
+**Status:** Implemented — draggable 4px divider between search and preview panels with `CursorStyle::ResizeLeftRight`. Min 200px, max 600px. Accent-colored on hover/drag.
 **UX Behavior:** A draggable vertical divider between the search results panel and preview panel. Users can drag left/right to resize both panels. The cursor changes to a resize cursor on hover. Minimum widths should be enforced (e.g., 200px for search, 300px for preview) to prevent either panel from collapsing completely.
 **Implementation:**
 - Replace the fixed `w(px(340.0))` on the search panel with a dynamic width stored in `SurchApp` state.
@@ -196,8 +196,8 @@ In tree view, directory nodes are collapsible. Collapsing a directory hides all 
 **Complexity:** M
 **Files:** `app.rs`, `search_panel.rs`, `surch-core/src/config.rs`
 
-#### 2.5 Search Result Text Truncation
-**Status:** Not implemented. Long lines are clipped at the panel edge, often showing only indentation whitespace.
+#### 2.5 Search Result Text Truncation ✅
+**Status:** Implemented — leading whitespace trimmed with adjusted match ranges, `text_ellipsis()` for overflow.
 **UX Behavior:** Search result lines in the results list should:
 - **Left-trim leading whitespace** to show the relevant content, not deep indentation that wastes horizontal space.
 - **Truncate with ellipsis** (`...`) when the line exceeds the panel width, rather than hard-clipping mid-character.
@@ -244,8 +244,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 
 **TODO:** Add "x" button to remove individual entries, "Clear Recent" link, relative timestamps ("2 days ago"), validate paths exist on disk.
 
-#### 2.10 Sidebar Icons
-**Status:** Shows first letter of channel name.
+#### 2.10 Sidebar Icons ✅
+**Status:** Implemented — `icon_for_channel()` maps channel IDs to `IconName` variants. Active channel has 2px accent bar indicator + background highlight.
 **Work:** Use proper icons for channel sidebar. `ChannelMetadata.icon` field exists but is ignored. Use GPUI `IconName` variants (e.g., `IconName::Search` for file search).
 **Complexity:** S
 **Files:** `sidebar.rs`, `surch-file-search/src/lib.rs`

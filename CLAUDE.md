@@ -119,7 +119,7 @@ These are hard-won lessons. Read before touching GPUI code:
 
 13. **Menu bar actions need FocusHandle.** GPUI greys out menu items when `is_action_available()` can't find a handler in the focus dispatch path. The root view needs a `FocusHandle` with `track_focus()` on its root div, and ALL action handlers must be registered via `.on_action()` on that div. Register handlers on BOTH the welcome screen and main view divs, even if some are no-ops.
 
-14. **Keyboard shortcuts via `actions!()` + `KeyBinding::new()`.** Define actions with `actions!(surch, [OpenFolder, ...])`, bind keys with `cx.bind_keys([KeyBinding::new("cmd-o", OpenFolder, Some("surch"))])`, add `key_context("surch")` to root divs, and handle with `.on_action(cx.listener(Self::handle_open_folder))`.
+14. **Keyboard shortcuts via `actions!()` + `KeyBinding::new()`.** Define actions with `actions!(surch, [OpenFolder, ...])`, bind keys with `cx.bind_keys([KeyBinding::new("cmd-o", OpenFolder, Some("surch"))])`, add `key_context("surch")` to root divs, and handle with `.on_action(cx.listener(Self::handle_open_folder))`. **Never bind bare navigation keys** (`up`, `down`, `left`, `right`, `tab`) to actions — GPUI intercepts them before Input components can process them, breaking text cursor movement and history navigation. Always use modifier keys (e.g., `cmd-down` instead of `down`).
 
 ## Syntect Gotchas
 

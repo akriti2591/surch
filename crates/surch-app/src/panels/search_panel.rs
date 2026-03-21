@@ -371,6 +371,7 @@ impl SearchPanel {
             .flex_1()
             .flex()
             .overflow_hidden()
+            .text_ellipsis()
             .whitespace_nowrap()
             .text_size(px(12.0))
             .font_family("Menlo");
@@ -654,13 +655,10 @@ impl Render for SearchPanel {
         let mut panel = div()
             .flex()
             .flex_col()
-            .w(px(340.0))
-            .flex_shrink_0()
+            .w_full()
             .h_full()
             .overflow_hidden()
-            .bg(SurchTheme::bg_secondary())
-            .border_r_1()
-            .border_color(SurchTheme::border());
+            .bg(SurchTheme::bg_secondary());
 
         // Header with close project button
         panel = panel.child(

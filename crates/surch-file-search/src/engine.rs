@@ -252,7 +252,13 @@ pub fn run_replace(
 
             for range in sorted_ranges {
                 if range.end <= new_line.len() {
-                    new_line.replace_range(range.clone(), replacement);
+                    let actual_replacement = if query.preserve_case {
+                        let original = &new_line[range.clone()];
+                        surch_core::channel::apply_case_pattern(original, replacement)
+                    } else {
+                        replacement.to_string()
+                    };
+                    new_line.replace_range(range.clone(), &actual_replacement);
                     total_replacements += 1;
                     file_changed = true;
                 }
@@ -326,6 +332,7 @@ mod tests {
             is_regex: false,
             case_sensitive: true,
             whole_word: false,
+            preserve_case: false,
         }
     }
 
@@ -879,6 +886,26 @@ mod tests {
 
         // Should only find matches in .rs and .py, not .txt
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_replace_preserve_case() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("test.txt"), "hello Hello HELLO\n").unwrap();
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut query = make_query(dir.path(), "hello");
+        query.case_sensitive = false;
+        query.preserve_case = true;
+
+        let (replacements, _) = run_replace(query, "world", tx, cancelled);
+
+        assert_eq!(replacements, 3);
+        let content = fs::read_to_string(dir.path().join("test.txt")).unwrap();
+        assert!(content.contains("world"));
+        assert!(content.contains("World"));
+        assert!(content.contains("WORLD"));
     }
 
     #[test]

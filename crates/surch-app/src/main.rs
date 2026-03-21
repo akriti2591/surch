@@ -28,8 +28,8 @@ fn main() {
             KeyBinding::new("alt-c", ToggleCaseSensitive, Some("surch")),
             KeyBinding::new("alt-w", ToggleWholeWord, Some("surch")),
             KeyBinding::new("alt-r", ToggleRegex, Some("surch")),
-            KeyBinding::new("down", SelectNextResult, Some("surch")),
-            KeyBinding::new("up", SelectPreviousResult, Some("surch")),
+            KeyBinding::new("cmd-down", SelectNextResult, Some("surch")),
+            KeyBinding::new("cmd-up", SelectPreviousResult, Some("surch")),
             KeyBinding::new("cmd-shift-enter", OpenInEditor, Some("surch")),
             KeyBinding::new("escape", ClearSearch, Some("surch")),
             KeyBinding::new("cmd-=", ZoomIn, Some("surch")),
@@ -46,11 +46,11 @@ fn main() {
         // Set up native macOS menu bar
         cx.set_menus(vec![
             Menu {
-                name: "surch".into(),
+                name: "Surch".into(),
                 items: vec![
-                    MenuItem::action("About surch", Quit),
+                    MenuItem::action("About Surch", Quit),
                     MenuItem::separator(),
-                    MenuItem::action("Quit surch", Quit),
+                    MenuItem::action("Quit Surch", Quit),
                 ],
             },
             Menu {
@@ -106,7 +106,7 @@ fn main() {
                 cx,
             ))),
             titlebar: Some(TitlebarOptions {
-                title: Some("surch".into()),
+                title: Some("Surch".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(9.0), px(9.0))),
                 ..Default::default()

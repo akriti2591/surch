@@ -3,6 +3,10 @@ name = "surch-app"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "surch"
+path = "src/main.rs"
+
 [dependencies]
 surch-core = { path = "../surch-core" }
 surch-file-search = { path = "../surch-file-search" }

@@ -33,11 +33,53 @@ pub struct ChannelQuery {
     pub case_sensitive: bool,
     /// Whether to match whole words only.
     pub whole_word: bool,
+    /// Whether replacement text should preserve the case pattern of the original match.
+    pub preserve_case: bool,
 }
 
 impl ChannelQuery {
     pub fn field(&self, id: &str) -> &str {
         self.fields.get(id).map(|s| s.as_str()).unwrap_or("")
+    }
+}
+
+/// Apply the case pattern of `original` to `replacement`.
+///
+/// Rules (matching VS Code's behavior):
+/// - All lowercase original → replacement lowercased
+/// - All uppercase original → replacement uppercased
+/// - Title case (first upper, rest lower) → replacement title-cased
+/// - Mixed case → replacement used as-is
+pub fn apply_case_pattern(original: &str, replacement: &str) -> String {
+    if original.is_empty() || replacement.is_empty() {
+        return replacement.to_string();
+    }
+
+    if original.chars().all(|c| c.is_lowercase() || !c.is_alphabetic()) {
+        replacement.to_lowercase()
+    } else if original.chars().all(|c| c.is_uppercase() || !c.is_alphabetic()) {
+        replacement.to_uppercase()
+    } else if is_title_case(original) {
+        let mut chars = replacement.chars();
+        match chars.next() {
+            Some(first) => {
+                let mut result = first.to_uppercase().to_string();
+                result.extend(chars.map(|c| c.to_lowercase().next().unwrap_or(c)));
+                result
+            }
+            None => replacement.to_string(),
+        }
+    } else {
+        // Mixed case — pass through
+        replacement.to_string()
+    }
+}
+
+fn is_title_case(s: &str) -> bool {
+    let mut chars = s.chars().filter(|c| c.is_alphabetic());
+    match chars.next() {
+        Some(first) => first.is_uppercase() && chars.all(|c| c.is_lowercase()),
+        None => false,
     }
 }
 
@@ -182,6 +224,42 @@ mod tests {
 
         let none = PreviewContent::None;
         assert!(matches!(none, PreviewContent::None));
+    }
+
+    #[test]
+    fn test_apply_case_pattern_all_lowercase() {
+        assert_eq!(apply_case_pattern("foo", "bar"), "bar");
+        assert_eq!(apply_case_pattern("hello", "WORLD"), "world");
+    }
+
+    #[test]
+    fn test_apply_case_pattern_all_uppercase() {
+        assert_eq!(apply_case_pattern("FOO", "bar"), "BAR");
+        assert_eq!(apply_case_pattern("HELLO", "world"), "WORLD");
+    }
+
+    #[test]
+    fn test_apply_case_pattern_title_case() {
+        assert_eq!(apply_case_pattern("Foo", "bar"), "Bar");
+        assert_eq!(apply_case_pattern("Hello", "world"), "World");
+    }
+
+    #[test]
+    fn test_apply_case_pattern_mixed_case_passthrough() {
+        assert_eq!(apply_case_pattern("fooBar", "bazQux"), "bazQux");
+        assert_eq!(apply_case_pattern("camelCase", "hello"), "hello");
+    }
+
+    #[test]
+    fn test_apply_case_pattern_empty_strings() {
+        assert_eq!(apply_case_pattern("", "bar"), "bar");
+        assert_eq!(apply_case_pattern("foo", ""), "");
+    }
+
+    #[test]
+    fn test_apply_case_pattern_with_numbers() {
+        assert_eq!(apply_case_pattern("foo123", "bar"), "bar");
+        assert_eq!(apply_case_pattern("FOO123", "bar"), "BAR");
     }
 
     #[test]
