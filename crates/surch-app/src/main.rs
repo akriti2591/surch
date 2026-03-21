@@ -7,7 +7,7 @@ mod theme;
 
 use app::{
     ClearSearch, CloseProject, Copy, Cut, FocusFind, OpenFolder, OpenInEditor, Paste,
-    Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
+    Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp, ToggleViewMode,
     GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord, ZoomIn, ZoomOut,
     ZoomReset,
 };
@@ -38,6 +38,7 @@ fn main() {
             KeyBinding::new("cmd--", ZoomOut, Some("surch")),
             KeyBinding::new("cmd-0", ZoomReset, Some("surch")),
             KeyBinding::new("cmd-g", GoToLine, Some("surch")),
+            KeyBinding::new("cmd-shift-t", ToggleViewMode, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -75,6 +76,8 @@ fn main() {
             Menu {
                 name: "View".into(),
                 items: vec![
+                    MenuItem::action("Toggle Tree View", ToggleViewMode),
+                    MenuItem::separator(),
                     MenuItem::action("Zoom In", ZoomIn),
                     MenuItem::action("Zoom Out", ZoomOut),
                     MenuItem::action("Reset Zoom", ZoomReset),

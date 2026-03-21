@@ -1,5 +1,6 @@
 use crate::theme::SurchTheme;
 use gpui::*;
+use gpui::prelude::FluentBuilder;
 use gpui::ScrollStrategy;
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::spinner::Spinner;
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 use surch_core::channel::InputFieldSpec;
+use surch_core::path_trie::{self, TrieInput};
 
 /// A single match result displayed in the result list.
 #[derive(Debug, Clone)]
@@ -28,17 +30,43 @@ pub struct FileGroup {
     pub collapsed: bool,
 }
 
-/// A flattened row for the virtualized list — either a file header or a match.
+/// Whether results are shown as a flat list or directory tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Flat,
+    Tree,
+}
+
+/// A flattened row for the virtualized list — either a file header, match, or directory header.
 #[derive(Clone)]
+#[allow(dead_code)]
 enum FlatRow {
     FileHeader {
         group_idx: usize,
         relative_path: String,
+        /// Display name: full relative path in Flat mode, just filename in Tree mode.
+        display_name: String,
         match_count: usize,
         collapsed: bool,
+        /// Indentation depth (0 in Flat mode, directory depth in Tree mode).
+        depth: usize,
     },
     MatchRow {
         item: SearchResultItem,
+        /// Indentation depth for the match row.
+        depth: usize,
+    },
+    DirectoryHeader {
+        /// Unique ID for this directory node (index into dir_collapsed map).
+        dir_id: usize,
+        /// Display name (just the directory segment, e.g. "components").
+        name: String,
+        /// Aggregate match count for all files under this directory.
+        match_count: usize,
+        /// Whether this directory is collapsed.
+        collapsed: bool,
+        /// Indentation depth.
+        depth: usize,
     },
 }
 
@@ -59,6 +87,11 @@ pub struct SearchPanel {
     preserve_case: bool,
     all_collapsed: bool,
     search_completed: bool,
+    view_mode: ViewMode,
+    /// Collapsed state for directory nodes in tree view, keyed by directory path.
+    dir_collapsed: HashMap<String, bool>,
+    /// Stable mapping from dir_id -> dir_path, rebuilt each time.
+    dir_id_to_path: Vec<String>,
     pub on_query_changed:
         Option<Box<dyn Fn(HashMap<String, String>, &mut Window, &mut Context<Self>)>>,
     pub on_result_selected:
@@ -110,6 +143,9 @@ impl SearchPanel {
             preserve_case: false,
             all_collapsed: false,
             search_completed: false,
+            view_mode: ViewMode::Flat,
+            dir_collapsed: HashMap::new(),
+            dir_id_to_path: Vec::new(),
             on_query_changed: None,
             on_result_selected: None,
             on_refresh: None,
@@ -167,6 +203,15 @@ impl SearchPanel {
         })
     }
 
+    /// Toggle between Flat and Tree view modes.
+    pub fn toggle_view_mode(&mut self) {
+        self.view_mode = match self.view_mode {
+            ViewMode::Flat => ViewMode::Tree,
+            ViewMode::Tree => ViewMode::Flat,
+        };
+        self.rebuild_flat_rows();
+    }
+
     /// Select the next match row, update state, and return the selected item.
     /// Does NOT fire `on_result_selected` — caller handles that to avoid re-entrant entity updates.
     pub fn select_next_item(&mut self, cx: &mut Context<Self>) -> Option<SearchResultItem> {
@@ -175,12 +220,12 @@ impl SearchPanel {
         }
 
         let current_idx = self.selected_result.and_then(|selected_id| {
-            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item } if item.id == selected_id))
+            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item, .. } if item.id == selected_id))
         });
 
         let start = current_idx.map(|i| i + 1).unwrap_or(0);
         for i in start..self.flat_rows.len() {
-            if let FlatRow::MatchRow { item } = &self.flat_rows[i] {
+            if let FlatRow::MatchRow { item, .. } = &self.flat_rows[i] {
                 self.selected_result = Some(item.id);
                 self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
                 cx.notify();
@@ -198,7 +243,7 @@ impl SearchPanel {
         }
 
         let current_idx = self.selected_result.and_then(|selected_id| {
-            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item } if item.id == selected_id))
+            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item, .. } if item.id == selected_id))
         });
 
         let end = match current_idx {
@@ -207,7 +252,7 @@ impl SearchPanel {
         };
 
         for i in (0..end).rev() {
-            if let FlatRow::MatchRow { item } = &self.flat_rows[i] {
+            if let FlatRow::MatchRow { item, .. } = &self.flat_rows[i] {
                 self.selected_result = Some(item.id);
                 self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
                 cx.notify();
@@ -236,17 +281,111 @@ impl SearchPanel {
     /// Rebuild the flat row list from file_groups.
     fn rebuild_flat_rows(&mut self) {
         self.flat_rows.clear();
+        match self.view_mode {
+            ViewMode::Flat => self.rebuild_flat_rows_flat(),
+            ViewMode::Tree => self.rebuild_flat_rows_tree(),
+        }
+    }
+
+    /// Flat mode: simple file header + match rows (original behavior).
+    fn rebuild_flat_rows_flat(&mut self) {
         for (group_idx, group) in self.file_groups.iter().enumerate() {
             self.flat_rows.push(FlatRow::FileHeader {
                 group_idx,
                 relative_path: group.relative_path.clone(),
+                display_name: group.relative_path.clone(),
                 match_count: group.matches.len(),
                 collapsed: group.collapsed,
+                depth: 0,
             });
             if !group.collapsed {
                 for item in &group.matches {
                     self.flat_rows.push(FlatRow::MatchRow {
                         item: item.clone(),
+                        depth: 1,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Tree mode: build a directory trie, then flatten it with directory headers.
+    fn rebuild_flat_rows_tree(&mut self) {
+        // Build trie inputs from file_groups
+        let inputs: Vec<TrieInput> = self
+            .file_groups
+            .iter()
+            .enumerate()
+            .map(|(idx, group)| TrieInput {
+                relative_path: group.relative_path.clone(),
+                group_index: idx,
+                match_count: group.matches.len(),
+            })
+            .collect();
+        let trie = path_trie::build_path_trie(&inputs);
+
+        // Clear and rebuild dir_id_to_path
+        self.dir_id_to_path.clear();
+
+        // Flatten the trie into flat_rows
+        self.flatten_trie_node(&trie, 0);
+    }
+
+    fn flatten_trie_node(&mut self, node: &path_trie::TrieNode, depth: usize) {
+        // Sort children: directories first (alphabetical), then files (alphabetical)
+        let mut dir_keys: Vec<&String> = node.children.keys().collect();
+        dir_keys.sort();
+
+        let mut file_keys: Vec<&String> = node.files.keys().collect();
+        file_keys.sort();
+
+        // Emit directory children
+        for dir_name in dir_keys {
+            let child = &node.children[dir_name];
+            let dir_path = if node.path.is_empty() {
+                dir_name.clone()
+            } else {
+                format!("{}/{}", node.path, dir_name)
+            };
+
+            let match_count = child.total_match_count();
+            let dir_id = self.dir_id_to_path.len();
+            self.dir_id_to_path.push(dir_path.clone());
+
+            let collapsed = *self.dir_collapsed.get(&dir_path).unwrap_or(&false);
+
+            self.flat_rows.push(FlatRow::DirectoryHeader {
+                dir_id,
+                name: dir_name.clone(),
+                match_count,
+                collapsed,
+                depth,
+            });
+
+            if !collapsed {
+                self.flatten_trie_node(child, depth + 1);
+            }
+        }
+
+        // Emit file children
+        for file_name in file_keys {
+            let (group_idx, _match_count) = node.files[file_name];
+            let group = &self.file_groups[group_idx];
+
+            self.flat_rows.push(FlatRow::FileHeader {
+                group_idx,
+                relative_path: group.relative_path.clone(),
+                display_name: file_name.clone(),
+                match_count: group.matches.len(),
+                collapsed: group.collapsed,
+                depth,
+            });
+
+            if !group.collapsed {
+                for item in &group.matches {
+                    self.flat_rows.push(FlatRow::MatchRow {
+                        item: item.clone(),
+                        depth: depth + 1,
                     });
                 }
             }
@@ -307,6 +446,10 @@ impl SearchPanel {
         for group in &mut self.file_groups {
             group.collapsed = true;
         }
+        // In tree mode, also collapse all directories
+        for (_, collapsed) in self.dir_collapsed.iter_mut() {
+            *collapsed = true;
+        }
         self.all_collapsed = true;
         self.rebuild_flat_rows();
     }
@@ -314,6 +457,10 @@ impl SearchPanel {
     fn expand_all(&mut self) {
         for group in &mut self.file_groups {
             group.collapsed = false;
+        }
+        // In tree mode, also expand all directories
+        for (_, collapsed) in self.dir_collapsed.iter_mut() {
+            *collapsed = false;
         }
         self.all_collapsed = false;
         self.rebuild_flat_rows();
@@ -591,6 +738,42 @@ impl SearchPanel {
 
         // Toolbar buttons
         if self.total_matches > 0 {
+            // View mode toggle (flat list vs tree)
+            let is_tree = self.view_mode == ViewMode::Tree;
+            container = container.child(
+                div()
+                    .id("btn-view-mode")
+                    .w(px(22.0))
+                    .h(px(22.0))
+                    .rounded(px(3.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(SurchTheme::bg_hover()))
+                    .when(is_tree, |s| s.bg(SurchTheme::toggle_active_bg()))
+                    .child(
+                        // Use list-tree icon when in flat mode (clicking switches to tree),
+                        // use list icon when in tree mode (clicking switches to flat).
+                        svg()
+                            .path(if is_tree {
+                                "icons/list.svg"
+                            } else {
+                                "icons/list-tree.svg"
+                            })
+                            .size_3()
+                            .text_color(if is_tree {
+                                SurchTheme::text_heading()
+                            } else {
+                                SurchTheme::text_secondary()
+                            }),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_view_mode();
+                        cx.notify();
+                    })),
+            );
+
             // Refresh search
             container = container.child(
                 div()
@@ -756,22 +939,105 @@ impl Render for SearchPanel {
                     for i in range {
                         let row = &rows_snapshot[i];
                         match row {
-                            FlatRow::FileHeader {
-                                group_idx,
-                                relative_path,
+                            FlatRow::DirectoryHeader {
+                                dir_id,
+                                name,
                                 match_count,
                                 collapsed,
+                                depth,
+                            } => {
+                                let dir_id = *dir_id;
+                                let collapsed = *collapsed;
+                                let depth = *depth;
+                                let entity = cx_listener.clone();
+                                let indent = depth as f32 * 16.0 + 12.0;
+                                items.push(
+                                    div()
+                                        .id(ElementId::Name(
+                                            format!("dir-{}", dir_id).into(),
+                                        ))
+                                        .w_full()
+                                        .pl(px(indent))
+                                        .pr(px(12.0))
+                                        .py(px(5.0))
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .cursor_pointer()
+                                        .bg(SurchTheme::bg_surface())
+                                        .hover(|s| s.bg(SurchTheme::bg_hover()))
+                                        .on_click(move |_, _, cx| {
+                                            entity.update(cx, |this, cx| {
+                                                if dir_id < this.dir_id_to_path.len() {
+                                                    let path = this.dir_id_to_path[dir_id].clone();
+                                                    let entry = this.dir_collapsed.entry(path).or_insert(false);
+                                                    *entry = !*entry;
+                                                }
+                                                this.rebuild_flat_rows();
+                                                cx.notify();
+                                            });
+                                        })
+                                        .child(
+                                            Icon::new(if collapsed {
+                                                IconName::ChevronRight
+                                            } else {
+                                                IconName::ChevronDown
+                                            })
+                                            .size_3()
+                                            .text_color(SurchTheme::text_muted()),
+                                        )
+                                        .child(
+                                            Icon::new(if collapsed {
+                                                IconName::Folder
+                                            } else {
+                                                IconName::FolderOpen
+                                            })
+                                            .size_3()
+                                            .text_color(SurchTheme::text_secondary()),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .text_size(px(12.0))
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(SurchTheme::text_heading())
+                                                .overflow_hidden()
+                                                .whitespace_nowrap()
+                                                .child(name.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(SurchTheme::text_secondary())
+                                                .px(px(6.0))
+                                                .py(px(1.0))
+                                                .rounded(px(8.0))
+                                                .bg(SurchTheme::bg_hover())
+                                                .child(format!("{}", match_count)),
+                                        ),
+                                );
+                            }
+                            FlatRow::FileHeader {
+                                group_idx,
+                                display_name,
+                                match_count,
+                                collapsed,
+                                depth,
+                                ..
                             } => {
                                 let group_idx = *group_idx;
                                 let collapsed = *collapsed;
+                                let depth = *depth;
                                 let entity = cx_listener.clone();
+                                let indent = depth as f32 * 16.0 + 12.0;
                                 items.push(
                                     div()
                                         .id(ElementId::Name(
                                             format!("file-group-{}", group_idx).into(),
                                         ))
                                         .w_full()
-                                        .px(px(12.0))
+                                        .pl(px(indent))
+                                        .pr(px(12.0))
                                         .py(px(5.0))
                                         .flex()
                                         .items_center()
@@ -807,7 +1073,7 @@ impl Render for SearchPanel {
                                                 .text_color(SurchTheme::text_heading())
                                                 .overflow_hidden()
                                                 .whitespace_nowrap()
-                                                .child(relative_path.clone()),
+                                                .child(display_name.clone()),
                                         )
                                         .child(
                                             div()
@@ -821,7 +1087,7 @@ impl Render for SearchPanel {
                                         ),
                                 );
                             }
-                            FlatRow::MatchRow { item, .. } => {
+                            FlatRow::MatchRow { item, depth } => {
                                 let is_selected = selected == Some(item.id);
                                 let item_clone = item.clone();
                                 let line_num = item.line_number;
@@ -829,11 +1095,12 @@ impl Render for SearchPanel {
                                 let match_ranges = item.match_ranges.clone();
                                 let id = item.id;
                                 let entity = cx_listener.clone();
+                                let indent = *depth as f32 * 16.0 + 12.0;
 
                                 let mut row = div()
                                     .id(ElementId::Name(format!("result-{}", id).into()))
                                     .w_full()
-                                    .pl(px(28.0))
+                                    .pl(px(indent))
                                     .pr(px(12.0))
                                     .py(px(4.0))
                                     .flex()
@@ -887,3 +1154,4 @@ impl Render for SearchPanel {
         panel
     }
 }
+
