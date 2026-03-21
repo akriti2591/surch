@@ -401,6 +401,52 @@ impl SearchPanel {
         self.search_completed = false;
     }
 
+    /// Find the file header info that should be "sticky" at the top of the results list.
+    /// Returns None if the first visible row is already a header (no sticky needed).
+    /// Returns Some((display_name, match_count, depth, collapsed, is_dir)) if a sticky header should show.
+    fn sticky_header_info(&self) -> Option<(String, usize, usize, bool, bool)> {
+        if self.flat_rows.is_empty() {
+            return None;
+        }
+
+        let top_idx = {
+            let state = self.results_scroll_handle.0.borrow();
+            state.deferred_scroll_to_item
+                .as_ref()
+                .map(|d| d.item_index)
+                .unwrap_or_else(|| state.base_handle.logical_scroll_top().0)
+        };
+        if top_idx >= self.flat_rows.len() {
+            return None;
+        }
+
+        // If the top visible row IS a header, no sticky needed
+        match &self.flat_rows[top_idx] {
+            FlatRow::FileHeader { .. } | FlatRow::DirectoryHeader { .. } => return None,
+            FlatRow::MatchRow { .. } => {}
+        }
+
+        // Walk backwards to find the nearest file header (skip directory headers for sticky)
+        for i in (0..top_idx).rev() {
+            match &self.flat_rows[i] {
+                FlatRow::FileHeader { display_name, match_count, depth, collapsed, relative_path, .. } => {
+                    // In flat mode, show the relative path; in tree mode, show the display name
+                    let name = if self.view_mode == ViewMode::Flat {
+                        relative_path.clone()
+                    } else {
+                        display_name.clone()
+                    };
+                    return Some((name, *match_count, *depth, *collapsed, false));
+                }
+                FlatRow::DirectoryHeader { name, match_count, depth, collapsed, .. } => {
+                    return Some((name.clone(), *match_count, *depth, *collapsed, true));
+                }
+                _ => continue,
+            }
+        }
+        None
+    }
+
     pub fn set_searching(&mut self, searching: bool) {
         self.is_searching = searching;
     }
@@ -931,8 +977,10 @@ impl Render for SearchPanel {
             .map(|input| input.read(cx).value().to_string())
             .filter(|s| !s.is_empty());
 
-        panel = panel.child(
-            uniform_list("search-results", row_count, {
+        // Compute sticky header before building the uniform_list
+        let sticky_header = self.sticky_header_info();
+
+        let results_list = uniform_list("search-results", row_count, {
                 let cx_listener = cx.entity().clone();
                 move |range, _window, _cx| {
                     let mut items = Vec::new();
@@ -1148,8 +1196,66 @@ impl Render for SearchPanel {
                 }
             })
             .flex_1()
-            .track_scroll(self.results_scroll_handle.clone()),
-        );
+            .track_scroll(self.results_scroll_handle.clone());
+
+        // Wrap the results list with a sticky header overlay
+        let mut results_container = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .relative()
+            .overflow_hidden()
+            .child(results_list);
+
+        if let Some((name, match_count, depth, _collapsed, is_dir)) = sticky_header {
+            let indent = depth as f32 * 16.0 + 12.0;
+            let sticky = div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .pl(px(indent))
+                .pr(px(12.0))
+                .py(px(5.0))
+                .flex()
+                .items_center()
+                .gap_1()
+                .bg(SurchTheme::bg_surface())
+                .border_b_1()
+                .border_color(SurchTheme::bg_hover())
+                .child(
+                    Icon::new(if is_dir {
+                        IconName::FolderOpen
+                    } else {
+                        IconName::File
+                    })
+                    .size_3()
+                    .text_color(SurchTheme::text_secondary()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(12.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(SurchTheme::text_heading())
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .child(name),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(SurchTheme::text_secondary())
+                        .px(px(6.0))
+                        .py(px(1.0))
+                        .rounded(px(8.0))
+                        .bg(SurchTheme::bg_hover())
+                        .child(format!("{}", match_count)),
+                );
+            results_container = results_container.child(sticky);
+        }
+
+        panel = panel.child(results_container);
 
         panel
     }

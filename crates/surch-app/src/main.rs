@@ -8,7 +8,7 @@ mod theme;
 use app::{
     ClearSearch, CloseProject, Copy, Cut, FindInPreview, FocusFind, OpenFolder, OpenInEditor,
     Paste, Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp, ToggleViewMode,
-    GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord, ToggleWordWrap,
+    GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord,
     ZoomIn, ZoomOut, ZoomReset,
 };
 use assets::SurchAssets;
@@ -23,7 +23,7 @@ fn main() {
         cx.bind_keys([
             KeyBinding::new("cmd-o", OpenFolder, Some("surch")),
             KeyBinding::new("cmd-w", CloseProject, Some("surch")),
-            KeyBinding::new("cmd-f", FocusFind, Some("surch")),
+            KeyBinding::new("cmd-shift-f", FocusFind, Some("surch")),
             KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("alt-c", ToggleCaseSensitive, Some("surch")),
             KeyBinding::new("alt-w", ToggleWholeWord, Some("surch")),
@@ -38,9 +38,8 @@ fn main() {
             KeyBinding::new("cmd--", ZoomOut, Some("surch")),
             KeyBinding::new("cmd-0", ZoomReset, Some("surch")),
             KeyBinding::new("cmd-g", GoToLine, Some("surch")),
-            KeyBinding::new("alt-z", ToggleWordWrap, Some("surch")),
             KeyBinding::new("cmd-shift-t", ToggleViewMode, Some("surch")),
-            KeyBinding::new("cmd-shift-f", FindInPreview, Some("surch")),
+            KeyBinding::new("cmd-f", FindInPreview, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -83,8 +82,6 @@ fn main() {
                     MenuItem::action("Zoom In", ZoomIn),
                     MenuItem::action("Zoom Out", ZoomOut),
                     MenuItem::action("Reset Zoom", ZoomReset),
-                    MenuItem::separator(),
-                    MenuItem::action("Toggle Word Wrap", ToggleWordWrap),
                 ],
             },
             Menu {
@@ -94,8 +91,8 @@ fn main() {
             Menu {
                 name: "Find".into(),
                 items: vec![
-                    MenuItem::action("Find", FocusFind),
                     MenuItem::action("Find in Preview", FindInPreview),
+                    MenuItem::action("Find in Files", FocusFind),
                     MenuItem::action("Clear Search", ClearSearch),
                     MenuItem::separator(),
                     MenuItem::action("Next Result", SelectNextResult),

@@ -45,7 +45,6 @@ pub struct PreviewPanel {
     syntax_set: SyntaxSet,
     theme: Theme,
     font_size: f32,
-    word_wrap: bool,
     go_to_line_active: bool,
     go_to_line_input: Option<Entity<InputState>>,
     // Find in preview state
@@ -76,7 +75,6 @@ impl PreviewPanel {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme: one_dark_theme,
             font_size: DEFAULT_FONT_SIZE,
-            word_wrap: false,
             go_to_line_active: false,
             go_to_line_input: None,
             find_active: false,
@@ -224,14 +222,6 @@ impl PreviewPanel {
 
     pub fn zoom_reset(&mut self) {
         self.font_size = DEFAULT_FONT_SIZE;
-    }
-
-    pub fn toggle_word_wrap(&mut self) {
-        self.word_wrap = !self.word_wrap;
-    }
-
-    pub fn word_wrap(&self) -> bool {
-        self.word_wrap
     }
 
     pub fn show_go_to_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -797,8 +787,6 @@ impl PreviewPanel {
         let line_count = self.file_content.len();
         let highlighted = self.highlighted_lines.clone();
         let font_size = self.font_size;
-        let word_wrap = self.word_wrap;
-
         // Build a map of line_index -> (ranges, current_match_range_idx or None)
         // for the find-in-preview highlighting
         let find_highlights: Rc<std::collections::HashMap<usize, (Vec<Range<usize>>, Option<usize>)>> = {
@@ -836,10 +824,7 @@ impl PreviewPanel {
                         render_line_with_find_highlights(spans, find_ranges, *current_range_idx)
                     } else {
                         let mut span_container =
-                            div().flex_1().flex().flex_row();
-                        if !word_wrap {
-                            span_container = span_container.whitespace_nowrap();
-                        }
+                            div().flex_1().flex().flex_row().whitespace_nowrap();
                         for (color, text) in spans {
                             if !text.is_empty() {
                                 span_container = span_container
@@ -849,16 +834,13 @@ impl PreviewPanel {
                         span_container
                     }
                 } else {
-                    let mut empty_div = div()
+                    div()
                         .flex_1()
                         .flex()
                         .flex_row()
+                        .whitespace_nowrap()
                         .text_color(SurchTheme::text_primary())
-                        .child("");
-                    if !word_wrap {
-                        empty_div = empty_div.whitespace_nowrap();
-                    }
-                    empty_div
+                        .child("")
                 };
 
                 let mut line_div = div()
@@ -869,6 +851,7 @@ impl PreviewPanel {
                     .child(
                         div()
                             .min_w(px(52.0))
+                            .flex_shrink_0()
                             .text_color(SurchTheme::text_muted())
                             .text_size(px(11.0))
                             .pr(px(12.0))

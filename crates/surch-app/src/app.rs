@@ -36,7 +36,6 @@ actions!(
         ZoomOut,
         ZoomReset,
         GoToLine,
-        ToggleWordWrap,
         Quit,
         Cut,
         Copy,
@@ -684,18 +683,6 @@ impl SurchApp {
         });
     }
 
-    fn handle_toggle_word_wrap(
-        &mut self,
-        _: &ToggleWordWrap,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.preview_panel.update(cx, |panel, _cx| {
-            panel.toggle_word_wrap();
-        });
-        cx.notify();
-    }
-
     fn handle_toggle_view_mode(
         &mut self,
         _: &ToggleViewMode,
@@ -934,7 +921,6 @@ impl SurchApp {
             .on_action(cx.listener(Self::handle_zoom_out))
             .on_action(cx.listener(Self::handle_zoom_reset))
             .on_action(cx.listener(Self::handle_go_to_line))
-            .on_action(cx.listener(Self::handle_toggle_word_wrap))
             .on_action(cx.listener(Self::handle_toggle_view_mode))
             .on_action(cx.listener(Self::handle_find_in_preview))
             // Catch unhandled MoveUp/MoveDown from single-line Input components.
