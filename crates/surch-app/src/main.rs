@@ -5,7 +5,10 @@ mod panels;
 mod sidebar;
 mod theme;
 
-use app::SurchApp;
+use app::{
+    CloseProject, FocusFind, OpenFolder, SurchApp, ToggleCaseSensitive, ToggleRegex,
+    ToggleWholeWord,
+};
 use assets::SurchAssets;
 use gpui::*;
 use gpui_component::Root;
@@ -13,6 +16,16 @@ use gpui_component::Root;
 fn main() {
     Application::new().with_assets(SurchAssets).run(|cx| {
         gpui_component::init(cx);
+
+        // Register keyboard shortcuts
+        cx.bind_keys([
+            KeyBinding::new("cmd-o", OpenFolder, Some("surch")),
+            KeyBinding::new("cmd-w", CloseProject, Some("surch")),
+            KeyBinding::new("cmd-f", FocusFind, Some("surch")),
+            KeyBinding::new("alt-c", ToggleCaseSensitive, Some("surch")),
+            KeyBinding::new("alt-w", ToggleWholeWord, Some("surch")),
+            KeyBinding::new("alt-r", ToggleRegex, Some("surch")),
+        ]);
 
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

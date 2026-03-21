@@ -119,6 +119,32 @@ impl SearchPanel {
         (self.case_sensitive, self.whole_word, self.is_regex)
     }
 
+    pub fn focus_find(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(input) = self.inputs.get("find") {
+            input.update(cx, |state, cx| {
+                state.focus(window, cx);
+            });
+        }
+    }
+
+    pub fn toggle_case_sensitive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.case_sensitive = !self.case_sensitive;
+        self.on_input_changed("find", window, cx);
+        cx.notify();
+    }
+
+    pub fn toggle_whole_word(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.whole_word = !self.whole_word;
+        self.on_input_changed("find", window, cx);
+        cx.notify();
+    }
+
+    pub fn toggle_regex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.is_regex = !self.is_regex;
+        self.on_input_changed("find", window, cx);
+        cx.notify();
+    }
+
     fn on_input_changed(&mut self, _field_id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let values = self.collect_input_values(cx);
         if let Some(ref handler) = self.on_query_changed {

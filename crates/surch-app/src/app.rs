@@ -13,6 +13,19 @@ use surch_core::channel::{ChannelQuery, SearchEvent};
 use surch_core::registry::ChannelRegistry;
 use surch_file_search::FileSearchChannel;
 
+// Define keyboard shortcut actions
+actions!(
+    surch,
+    [
+        OpenFolder,
+        CloseProject,
+        FocusFind,
+        ToggleCaseSensitive,
+        ToggleWholeWord,
+        ToggleRegex,
+    ]
+);
+
 pub struct SurchApp {
     sidebar: Entity<Sidebar>,
     search_panel: Entity<SearchPanel>,
@@ -334,6 +347,58 @@ impl SurchApp {
         }
     }
 
+    fn handle_open_folder(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_folder(window, cx);
+    }
+
+    fn handle_close_project(
+        &mut self,
+        _: &CloseProject,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_project(cx);
+    }
+
+    fn handle_focus_find(&mut self, _: &FocusFind, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.focus_find(window, cx);
+        });
+    }
+
+    fn handle_toggle_case(
+        &mut self,
+        _: &ToggleCaseSensitive,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.toggle_case_sensitive(window, cx);
+        });
+    }
+
+    fn handle_toggle_word(
+        &mut self,
+        _: &ToggleWholeWord,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.toggle_whole_word(window, cx);
+        });
+    }
+
+    fn handle_toggle_regex(
+        &mut self,
+        _: &ToggleRegex,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.toggle_regex(window, cx);
+        });
+    }
+
     pub fn open_folder(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity().clone();
         cx.spawn(async move |_, cx| {
@@ -372,6 +437,8 @@ impl Render for SurchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.workspace_root.is_none() {
             return div()
+                .key_context("surch")
+                .on_action(cx.listener(Self::handle_open_folder))
                 .size_full()
                 .flex()
                 .flex_col()
@@ -443,6 +510,13 @@ impl Render for SurchApp {
         }
 
         div()
+            .key_context("surch")
+            .on_action(cx.listener(Self::handle_open_folder))
+            .on_action(cx.listener(Self::handle_close_project))
+            .on_action(cx.listener(Self::handle_focus_find))
+            .on_action(cx.listener(Self::handle_toggle_case))
+            .on_action(cx.listener(Self::handle_toggle_word))
+            .on_action(cx.listener(Self::handle_toggle_regex))
             .size_full()
             .flex()
             .flex_row()
