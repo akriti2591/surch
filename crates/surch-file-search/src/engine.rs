@@ -3,8 +3,8 @@ use grep_regex::RegexMatcher;
 use grep_searcher::sinks::UTF8;
 use grep_searcher::Searcher;
 use ignore::overrides::OverrideBuilder;
-use ignore::WalkBuilder;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use ignore::{WalkBuilder, WalkState};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use surch_core::channel::{ChannelQuery, ResultEntry, SearchEvent};
 
@@ -46,7 +46,11 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
 
     // Build directory walker with include/exclude globs
     let mut walk_builder = WalkBuilder::new(&query.workspace_root);
-    walk_builder.hidden(true).git_ignore(true).git_global(true);
+    walk_builder
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .threads(num_cpus::get().min(12)); // Use available cores, cap at 12
 
     // Apply include/exclude overrides
     let mut override_builder = OverrideBuilder::new(&query.workspace_root);
@@ -74,73 +78,97 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
         }
     }
 
-    let id_counter = AtomicU64::new(0);
-    let mut files_searched: usize = 0;
-    let mut total_matches: usize = 0;
+    let id_counter = Arc::new(AtomicU64::new(0));
+    let files_searched = Arc::new(AtomicUsize::new(0));
+    let total_matches = Arc::new(AtomicUsize::new(0));
 
-    for entry in walk_builder.build().flatten() {
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
+    // Use parallel walker — same approach as ripgrep.
+    // build_parallel() uses ignore's internal thread pool for directory traversal.
+    // Each thread gets its own Searcher (they're not Send).
+    let matcher = Arc::new(matcher);
+    let pattern = Arc::new(pattern.to_string());
+    let case_sensitive = query.case_sensitive;
 
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
+    walk_builder.build_parallel().run(|| {
+        let tx = tx.clone();
+        let cancelled = cancelled.clone();
+        let matcher = matcher.clone();
+        let pattern = pattern.clone();
+        let id_counter = id_counter.clone();
+        let files_searched = files_searched.clone();
+        let total_matches = total_matches.clone();
 
-        files_searched += 1;
+        Box::new(move |entry| {
+            if cancelled.load(Ordering::Relaxed) {
+                return WalkState::Quit;
+            }
 
-        // Send progress every 100 files
-        if files_searched % 100 == 0 {
-            let _ = tx.send(SearchEvent::Progress {
-                files_searched,
-                matches_found: total_matches,
-            });
-        }
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
 
-        let mut searcher = Searcher::new();
-        let tx_clone = tx.clone();
-        let path_buf = path.to_path_buf();
+            let path = entry.path();
+            if !path.is_file() {
+                return WalkState::Continue;
+            }
 
-        let result = searcher.search_path(
-            &matcher,
-            path,
-            UTF8(|line_number, line_content| {
-                if cancelled.load(Ordering::Relaxed) {
-                    return Ok(false);
-                }
+            let count = files_searched.fetch_add(1, Ordering::Relaxed);
 
-                // Find match ranges within the line
-                let match_ranges = find_match_ranges(line_content, pattern, query.case_sensitive);
+            // Send progress every 100 files
+            if count % 100 == 0 {
+                let _ = tx.send(SearchEvent::Progress {
+                    files_searched: count,
+                    matches_found: total_matches.load(Ordering::Relaxed),
+                });
+            }
 
-                let entry = ResultEntry {
-                    id: id_counter.fetch_add(1, Ordering::Relaxed),
-                    file_path: Some(path_buf.clone()),
-                    line_number: Some(line_number as usize),
-                    column: match_ranges.first().map(|r| r.start),
-                    line_content: line_content.trim_end().to_string(),
-                    match_ranges,
-                };
+            let mut searcher = Searcher::new();
+            let tx_clone = tx.clone();
+            let path_buf = path.to_path_buf();
 
-                total_matches += 1;
-                let _ = tx_clone.send(SearchEvent::Match(entry));
-                Ok(true)
-            }),
-        );
+            let result = searcher.search_path(
+                matcher.as_ref(),
+                path,
+                UTF8(|line_number, line_content| {
+                    if cancelled.load(Ordering::Relaxed) {
+                        return Ok(false);
+                    }
 
-        if let Err(e) = result {
-            // Skip files that can't be searched (binary, permission denied, etc.)
-            let _ = tx.send(SearchEvent::Error(format!(
-                "Error searching {}: {}",
-                path.display(),
-                e
-            )));
-        }
-    }
+                    // Find match ranges within the line
+                    let match_ranges =
+                        find_match_ranges(line_content, &pattern, case_sensitive);
+
+                    let entry = ResultEntry {
+                        id: id_counter.fetch_add(1, Ordering::Relaxed),
+                        file_path: Some(path_buf.clone()),
+                        line_number: Some(line_number as usize),
+                        column: match_ranges.first().map(|r| r.start),
+                        line_content: line_content.trim_end().to_string(),
+                        match_ranges,
+                    };
+
+                    total_matches.fetch_add(1, Ordering::Relaxed);
+                    let _ = tx_clone.send(SearchEvent::Match(entry));
+                    Ok(true)
+                }),
+            );
+
+            if let Err(e) = result {
+                let _ = tx.send(SearchEvent::Error(format!(
+                    "Error searching {}: {}",
+                    path.display(),
+                    e
+                )));
+            }
+
+            WalkState::Continue
+        })
+    });
 
     let _ = tx.send(SearchEvent::Complete {
-        total_files: files_searched,
-        total_matches,
+        total_files: files_searched.load(Ordering::Relaxed),
+        total_matches: total_matches.load(Ordering::Relaxed),
     });
 }
 
