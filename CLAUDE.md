@@ -18,15 +18,17 @@ Requires **full Xcode** (not just Command Line Tools) for Metal shader compilati
 ```
 crates/
 ├── surch-app/              # GPUI desktop application (binary)
+│   ├── assets/icons/        # Lucide SVG icons (embedded via rust_embed)
 │   └── src/
 │       ├── main.rs          # Entry point, window setup, Root wrapper
 │       ├── app.rs           # Root view orchestrating all panels
+│       ├── assets.rs         # AssetSource impl (rust_embed for SVG icons)
 │       ├── sidebar.rs       # Left icon strip for channel switching
 │       ├── panels/
-│       │   ├── search_panel.rs   # Input fields + grouped result list
+│       │   ├── search_panel.rs   # Input fields + virtualized result list
 │       │   └── preview_panel.rs  # File preview with syntax highlighting
 │       ├── components/      # Reusable UI components (future)
-│       └── theme.rs         # Color palette (One Dark-inspired)
+│       └── theme.rs         # Color palette (One Dark-inspired, WCAG AA)
 ├── surch-core/              # Framework-agnostic core (library)
 │   └── src/
 │       ├── channel.rs       # Channel trait — the extension interface
@@ -53,6 +55,12 @@ Input changes are debounced 150ms before triggering search (`handle_query_change
 ### Cross-Panel Communication
 Panels communicate via public callback fields (`on_query_changed`, `on_result_selected`, `on_action_selected`) set in `SurchApp::setup_callbacks`. This avoids trait coupling between panels.
 
+## Design Philosophy
+
+**Leverage GPUI and gpui-component maximally.** Their code is battle-tested with Zed (a full production editor used by thousands). Before building anything custom, check if GPUI or gpui-component already provides it. Search the crate source in `~/.cargo/registry/src/`. Only go custom when no built-in exists.
+
+**The preview panel is intentionally custom.** It renders syntax-highlighted code using `uniform_list` + `syntect` spans + manual div layout. This is the right approach — gpui-component's `TextView` is Markdown/HTML-first and would add parsing overhead for raw code files. For text selection + copy, look at gpui-component's `Inline` component (`text/inline.rs`) which handles selection and clipboard at the span level. For Markdown file preview (READMEs), consider adopting `TextView` directly.
+
 ## Performance Rules
 
 ### Search Engine (`engine.rs`)
@@ -62,15 +70,18 @@ Panels communicate via public callback fields (`on_query_changed`, `on_result_se
 - Cancellation via `AtomicBool` checked between files.
 
 ### UI Rendering
-- **Preview pane uses `uniform_list`** for virtualized rendering — only renders visible lines. This is critical for large files (1000+ lines). Do NOT replace with a naive `for` loop.
-- **Never clone large data in render methods.** The search panel's `render()` iterates `file_groups` by index, not by cloning. Render methods run every frame.
+- **Both panels use `uniform_list`** for virtualized rendering — only renders visible items. This is critical for large result sets (1000+ matches) and large files (1000+ lines). Do NOT replace with a naive `for` loop.
+- **Search results use a `FlatRow` enum** — file headers and match rows are flattened into a single indexed list so `uniform_list` can address them. `rebuild_flat_rows()` must be called after any mutation to `file_groups` (add result, toggle collapse, clear).
+- **Never clone large data in render methods.** Render methods run every frame. The `uniform_list` closure captures a snapshot of `flat_rows` (cloned once per render) and `highlighted_lines` (shared via `Rc`).
 - Use `flex_shrink_0()` on fixed-height containers (header, inputs, status bar) to prevent layout jank.
 - Use `overflow_hidden()` on fixed-width panels to prevent width fluctuations.
 
 ### Syntax Highlighting
 - Uses `syntect` with `base16-ocean.dark` theme.
 - **Use `find_syntax_for_file()`** — it tries filename, then extension, then first-line detection (shebangs). Do NOT use `find_syntax_by_extension()` (fails on compound extensions like `.htmltemplate`).
+- **Append `\n` to each line** before calling `highlight_line()` when using `SyntaxSet::load_defaults_newlines()`. Without the trailing newline, syntect's parser state drifts and highlighting breaks after ~100 lines.
 - Highlighted spans are pre-computed in `load_file()` and stored as `Rc<Vec<Vec<(Hsla, String)>>>` for sharing with the uniform_list render closure.
+- **Replace `\t` with 4 spaces** when loading files. GPUI has no tab-size CSS property — tabs render at 8-space width by default, which looks broken. Convert on load.
 
 ## GPUI Gotchas
 
@@ -98,6 +109,16 @@ These are hard-won lessons. Read before touching GPUI code:
 
 8. **Element borders add width.** `border_l_2()` adds 2px to element width. For indicators that shouldn't change layout, use a separate sibling div with fixed width.
 
+9. **Asset system for SVG icons.** `Application::new().with_assets(SurchAssets)` registers an `AssetSource` (implemented via `rust_embed` in `assets.rs`). Icons live in `assets/icons/*.svg` (Lucide icon set). Use `gpui_component::{Icon, IconName}` — the `icon` module is private, import from crate root. `Sizable` trait must be in scope for `.with_size()`.
+
+10. **`uniform_list` click handlers.** Inside a `uniform_list` closure, you can't use `cx.listener()` (no `&mut self`). Instead, clone the entity handle and use `entity.update(cx, |this, cx| { ... })` in the click handler.
+
+11. **gpui-component re-exports.** `pub use icon::*` and `pub use styled::*` at crate root means `Icon`, `IconName`, `Sizable`, `Size` are all at `gpui_component::`. The `spinner` module is NOT re-exported — use `gpui_component::spinner::Spinner`.
+
+## Future: Tree-sitter for Syntax Highlighting
+
+`syntect` (regex-based, TextMate grammars) works but is line-by-line and can drift on complex files. **Tree-sitter** (C library with Rust bindings via `tree-sitter` crate) is what Zed, Neovim, Helix, and Atom use — it parses into a full AST and supports incremental re-parsing (only re-highlights changed regions). This is a post-v1.0 consideration for better highlighting accuracy and performance on large files.
+
 ## Editor Auto-Discovery
 
 Editors are detected by scanning `/Applications` for `.app` bundles, not by `which` (GUI apps don't inherit shell PATH). Each editor uses `open -a` as fallback if CLI isn't in PATH. Cursor uses `--goto file:line` (same as VS Code).
@@ -107,8 +128,9 @@ Editors are detected by scanning `/Applications` for `.app` bundles, not by `whi
 | Crate | Purpose |
 |---|---|
 | `gpui` 0.2.2 | GPU-accelerated UI framework (Metal on macOS) |
-| `gpui-component` 0.5.1 | Input, scroll, Root components |
+| `gpui-component` 0.5.1 | Input, scroll, Root, Icon, Spinner components |
 | `grep` + `grep-regex` + `grep-searcher` | ripgrep's search engine as a library |
 | `ignore` 0.4 | Directory walking with .gitignore, include/exclude globs, parallel walking |
 | `crossbeam-channel` | Background thread → UI communication |
 | `syntect` 5 | Syntax highlighting (base16-ocean.dark theme) |
+| `rust-embed` 8 | Compile-time asset embedding (SVG icons) |

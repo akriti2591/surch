@@ -52,7 +52,9 @@ impl PreviewPanel {
     pub fn load_file(&mut self, path: PathBuf, focus_line: usize, pattern: Option<String>) {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
-                let raw_lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+                // Replace tabs with 4 spaces for consistent indentation rendering.
+                // GPUI renders tabs at default 8-space width; there's no tab-size property.
+                let raw_lines: Vec<String> = content.lines().map(|l| l.replace('\t', "    ")).collect();
 
                 // Determine syntax — try filename, extension, then first line
                 let syntax = self

@@ -6,6 +6,14 @@
 
 Surch aims to be the best standalone search tool for macOS — bringing VS Code/Cursor's search UX into a dedicated, fast, GPU-accelerated app. The goal is feature parity with Cursor's search panel, plus unique advantages that come from being a standalone tool (multi-project search, channel extensibility).
 
+## Vision & Inspiration
+
+The power of good search is not limited to file contents. Tools like DevOps Toolbox's unified CLI (["This Tool Replaced 7 CLIs"](https://www.youtube.com/watch?v=wwJA9mDqIVc)) demonstrate that developers juggle dozens of separate tools for searching across different domains — git logs, Kubernetes pods, config files, sessions, bookmarks, and more. Each domain has its own CLI, its own flags, its own output format. The insight: a single search interface with fuzzy finding, live preview, and a consistent UX can replace all of them.
+
+Surch's channel architecture is built for exactly this. Every search domain becomes a channel — same input fields, same result list, same preview pane, same keyboard shortcuts. A developer shouldn't need to context-switch between `grep`, `git log --grep`, `kubectl logs`, browser history search, and a dozen other tools. They should open Surch, pick a channel (or search across all channels), and find what they need.
+
+The long-term north star: **universal search across anything a developer touches**, with each data source plugged in as a channel. File search is v1. Everything else is the same pattern.
+
 ---
 
 ## Milestone 1: Alpha (Core Functionality)
@@ -327,19 +335,55 @@ Dropdown on the find input showing the last 20 search queries. Press `Down` when
 The channel architecture is designed for extensibility. Future channels:
 - **Git Search** — search through git log messages, diffs, blame
 - **Symbol Search** — search for function/class/type definitions using tree-sitter
-- **Kubernetes** — search across pod logs, config maps
+- **Kubernetes** — search across pod logs, config maps, secrets, events
 - **Browser Bookmarks** — search Chrome/Safari bookmarks and history
+- **Docker / Container Logs** — search across running container logs, filter by container name or image
+- **Environment & Dotfiles** — search shell history, environment variables, dotfiles, and config directories (`~/.config`, `~/.ssh`, etc.)
+- **Documentation Search** — search local man pages, tldr pages, or project-local docs
+- **Process Search** — search running processes, open ports, listening sockets
+- **Notes & Scratch** — full-text search across markdown notes, scratch files, clipboard history
+- **Cross-Channel Search** — a meta-channel that searches across all active channels simultaneously, ranking results by relevance regardless of source
 
 Each channel implements the `Channel` trait and gets its own sidebar icon, input fields, and result format.
 **Complexity:** XL (per channel)
 
-#### 4.5 File Search: Context Lines
+#### 4.5 Tree-sitter Syntax Highlighting
+**Status:** Using syntect (regex-based, TextMate grammars). Works but line-by-line and can drift on complex files.
+**Why:** Tree-sitter parses into a full AST and supports incremental re-parsing — only re-highlights changed regions. This is what Zed, Neovim, Helix, and Atom all use. Benefits:
+- More accurate highlighting (understands language structure, not just regex patterns)
+- Incremental parsing (only re-parse changed regions — matters for replace preview)
+- Foundation for future Symbol Search channel (tree-sitter gives you function/class/type nodes for free)
+- C library with mature Rust bindings (`tree-sitter` crate)
+**Complexity:** L
+**Dependencies:** None — can be swapped in behind the same `Rc<Vec<Vec<(Hsla, String)>>>` interface
+**Files:** `preview_panel.rs`, new `highlighting.rs` module
+
+#### 4.6 File Search: Context Lines
 Show N lines of context above/below each match (like `grep -C`). Toggle in settings or via a button. Context lines are rendered in a muted style, non-clickable.
 **Complexity:** M
 
-#### 4.6 Find and Replace in Single File
+#### 4.7 Find and Replace in Single File
 When the preview panel is showing a file, allow `Cmd+F` to search within that file (like VS Code's in-file find). This is a lighter-weight search scoped to the previewed file.
 **Complexity:** L
+
+#### 4.8 Text Selection, Copy, and Find-in-Preview
+**Status:** Not implemented. Preview pane text is not selectable.
+**UX Behavior:** Users should be able to:
+- **Select text** in the preview pane by clicking and dragging, or `Cmd+A` to select all visible content.
+- **Copy selected text** via `Cmd+C` or right-click context menu. Copies plain text (no highlighting markup).
+- **Find in preview** via `Cmd+F` when the preview pane is focused — opens a small find bar at the top of the preview pane (distinct from the main search panel). Supports:
+  - Incremental highlight of all matches in the preview.
+  - `Enter` / `Shift+Enter` to jump between matches.
+  - Match count indicator (e.g., "3 of 12").
+  - `Escape` to dismiss the find bar.
+
+This is essential for reviewing search results — users frequently need to copy code snippets from the preview or search within a large file they're previewing.
+**Implementation:**
+- GPUI text selection may require a selectable text element or a custom selection model tracking start/end character offsets mapped to the `uniform_list` row indices.
+- Find-in-preview reuses the same highlight rendering as the main search but scoped to the loaded file's content.
+- Store find state (`find_query`, `matches`, `current_match_index`) on `PreviewPanel`.
+**Complexity:** L
+**Files:** `preview_panel.rs`
 
 ---
 
@@ -373,6 +417,7 @@ Phase 3 — Ship v1.0:
   GitHub Pages website                              (M) — Week 11
 
 Phase 4 — Post-launch:
+  Tree-sitter syntax highlighting                   (L)
   Settings UI                                       (L)
   Multi-root workspace                              (L)
   Search history                                    (M)
