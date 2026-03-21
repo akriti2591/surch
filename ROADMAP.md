@@ -9,14 +9,13 @@ Core gaps that make the app feel broken.
 **Work:** Add three toggle buttons (Aa, Ab, .*) to the Find input row in `search_panel.rs`. Wire toggle state into `ChannelQuery` in `app.rs`.
 **Complexity:** S
 
-### 2. Fix "Open in..." Editor Button
-**Status:** Editor detection code exists in `surch-file-search/src/lib.rs` (`detect_editors` via `which`), but fails because macOS GUI apps get a minimal PATH. Also, `execute_action` uses `args.split_whitespace()` which breaks on paths with spaces.
-**Work:** Use full editor paths (`/usr/local/bin/code`, `/Applications/Cursor.app/...`). Fix argument passing. Cache detected editors at startup.
+### 2. Fix "Open in..." Editor Button ✅
+**Status:** Fixed. Now auto-discovers GUI editors from `/Applications` instead of relying on `which` + PATH. Cursor uses `--goto file:line` (was missing `--goto` flag). Arguments are passed as separate `.arg()` calls instead of `split_whitespace()` (fixes paths with spaces). Falls back to `open -a` if CLI isn't in PATH. Removed terminal editors (vim/nvim) — desktop app should open desktop editors.
 **Complexity:** S
 
 ### 3. Fix Scroll/Layout Jank
-**Status:** Pasting text in Replace causes the search panel to jerk — the input container and results list fight for flex space.
-**Work:** Add `flex_shrink_0()` on the inputs container, stabilize layout so results area doesn't jump on input resize.
+**Status:** Scroll is janky in both the search panel (results list) and the preview pane (file content). Pasting text in Replace causes the search panel to jerk — the input container and results list fight for flex space.
+**Work:** Add `flex_shrink_0()` on the inputs container, stabilize layout so results area doesn't jump on input resize. Investigate smooth scrolling for both scroll areas.
 **Complexity:** S
 
 ### 4. Keyboard Shortcuts
@@ -82,30 +81,72 @@ Settings panel for: default editor, theme preference, excluded directories. Conf
 Unit tests for search engine (literal, regex, case sensitivity, globs), config round-trip, editor detection. Integration tests for end-to-end search flow.
 **Complexity:** M
 
+### 14. App Logo & Icon
+**Status:** No app icon — shows default macOS app icon.
+**Work:** Design a logo (magnifying glass + "S" motif). Export as .icns for macOS app bundle. Set in Cargo/build config.
+**Complexity:** S
+
+### 15. GitHub Pages Website
+**Status:** No project website.
+**Work:** Build a landing page at surch.dev or via GH Pages. Hero section with screenshot, features list, download links, docs. Target for beta launch.
+**Complexity:** M
+
 ---
 
 ## Implementation Order
 
 ```
-Phase 1 — Unblock core usage (all S/M):
+Phase 1 — Unblock core usage (alpha):
   ✧ Search toggles (S)
-  ✧ Fix "Open in..." (S)
+  ✧ Fix "Open in..." (S) ✅
   ✧ Fix scroll jank (S)
   ✧ Match highlighting (S)
   ✧ Keyboard shortcuts (M)
 
-Phase 2 — Polish for release:
+Phase 2 — Polish for beta:
   ✧ UI polish pass (M)
   ✧ Sidebar icons (S)
   ✧ Close project (S)
   ✧ Menu bar (M)
   ✧ Syntax highlighting (L)
+  ✧ App logo & icon (S)
 
-Phase 3 — Post-launch:
+Phase 3 — Beta launch:
+  ✧ Test suite (M)
+  ✧ Release binaries on GitHub (M)
+  ✧ GitHub Pages website (M)
+
+Phase 4 — Post-launch:
   ✧ Replace preview (L)
   ✧ Settings UI (L)
-  ✧ Test suite (M)
 ```
+
+## Release Strategy
+
+**Current stage: Alpha** — functional but unpolished, internal use only.
+
+### Alpha → Beta
+- Complete Phase 1 + Phase 2
+- All P0 and P1 features working
+- App icon and branding in place
+
+### Beta → v1.0
+- GitHub Releases with pre-built macOS binaries (universal: arm64 + x86_64)
+- Build pipeline: `cargo build --release`, then package as `.app` bundle with `cargo-bundle` or manual Info.plist + icns
+- Code-sign with Apple Developer ID (optional for initial release, required for Gatekeeper)
+- DMG installer via `create-dmg` for drag-to-Applications UX
+- GitHub Pages site with download links, screenshot, feature list
+
+### Distribution format
+```
+surch-v0.1.0-macos-arm64.dmg    # Apple Silicon
+surch-v0.1.0-macos-x86_64.dmg   # Intel
+surch-v0.1.0-macos-universal.dmg # Universal binary (future)
+```
+
+### CI/CD (GitHub Actions)
+- On tag push (v*): build release binaries, create GitHub Release, upload artifacts
+- On PR: cargo build + cargo test + clippy
 
 ---
 

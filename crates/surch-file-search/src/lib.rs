@@ -20,25 +20,25 @@ impl FileSearchChannel {
     }
 
     fn detect_editors() -> Vec<ChannelAction> {
-        let editors = vec![
-            ("cursor", "Cursor", "cursor {file}:{line}"),
-            ("code", "VS Code", "code --goto {file}:{line}"),
-            ("zed", "Zed", "zed {file}:{line}"),
-            ("subl", "Sublime Text", "subl {file}:{line}"),
-            ("vim", "Vim", "vim +{line} {file}"),
-            ("nvim", "Neovim", "nvim +{line} {file}"),
+        // Auto-discover GUI apps from /Applications and CLI tools from PATH.
+        // Each entry: (app_bundle_name or cli_cmd, display_label, action_id)
+        let gui_apps: Vec<(&str, &str, &str)> = vec![
+            ("Cursor", "Cursor", "open_in_cursor"),
+            ("Visual Studio Code", "VS Code", "open_in_code"),
+            ("VSCodium", "VSCodium", "open_in_vscodium"),
+            ("Zed", "Zed", "open_in_zed"),
+            ("Sublime Text", "Sublime Text", "open_in_subl"),
+            ("TextEdit", "TextEdit", "open_in_textedit"),
         ];
 
         let mut actions = Vec::new();
-        for (cmd, label, _args) in editors {
-            if Command::new("which")
-                .arg(cmd)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-            {
+
+        // Check /Applications for installed GUI editors
+        for (app_name, label, action_id) in &gui_apps {
+            let app_path = format!("/Applications/{}.app", app_name);
+            if std::path::Path::new(&app_path).exists() {
                 actions.push(ChannelAction {
-                    id: format!("open_in_{}", cmd),
+                    id: action_id.to_string(),
                     label: format!("Open in {}", label),
                     icon: None,
                 });
@@ -124,25 +124,83 @@ impl Channel for FileSearchChannel {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No file path"))?;
         let line = entry.line_number.unwrap_or(1);
+        let file_str = file.to_string_lossy();
 
         if action_id == "reveal_in_finder" {
             Command::new("open").arg("-R").arg(file).spawn()?;
             return Ok(());
         }
 
-        let (cmd, args) = match action_id {
-            "open_in_cursor" => ("cursor", format!("{}:{}", file.display(), line)),
-            "open_in_code" => ("code", format!("--goto {}:{}", file.display(), line)),
-            "open_in_zed" => ("zed", format!("{}:{}", file.display(), line)),
-            "open_in_subl" => ("subl", format!("{}:{}", file.display(), line)),
-            "open_in_vim" => ("vim", format!("+{} {}", line, file.display())),
-            "open_in_nvim" => ("nvim", format!("+{} {}", line, file.display())),
-            _ => return Err(anyhow::anyhow!("Unknown action: {}", action_id)),
-        };
+        if action_id == "open_in_textedit" {
+            Command::new("open").arg("-a").arg("TextEdit").arg(file).spawn()?;
+            return Ok(());
+        }
 
-        Command::new(cmd)
-            .args(args.split_whitespace())
-            .spawn()?;
+        // For editors with CLI tools, use `open -a` as fallback if CLI isn't in PATH.
+        // Each editor gets proper argument handling — no split_whitespace.
+        match action_id {
+            "open_in_cursor" => {
+                // Cursor uses --goto file:line (same as VS Code)
+                Command::new("cursor")
+                    .arg("--goto")
+                    .arg(format!("{}:{}", file_str, line))
+                    .spawn()
+                    .or_else(|_| {
+                        Command::new("open")
+                            .arg("-a").arg("Cursor")
+                            .arg(file)
+                            .spawn()
+                    })?;
+            }
+            "open_in_code" => {
+                Command::new("code")
+                    .arg("--goto")
+                    .arg(format!("{}:{}", file_str, line))
+                    .spawn()
+                    .or_else(|_| {
+                        Command::new("open")
+                            .arg("-a").arg("Visual Studio Code")
+                            .arg(file)
+                            .spawn()
+                    })?;
+            }
+            "open_in_vscodium" => {
+                Command::new("codium")
+                    .arg("--goto")
+                    .arg(format!("{}:{}", file_str, line))
+                    .spawn()
+                    .or_else(|_| {
+                        Command::new("open")
+                            .arg("-a").arg("VSCodium")
+                            .arg(file)
+                            .spawn()
+                    })?;
+            }
+            "open_in_zed" => {
+                Command::new("zed")
+                    .arg(format!("{}:{}", file_str, line))
+                    .spawn()
+                    .or_else(|_| {
+                        Command::new("open")
+                            .arg("-a").arg("Zed")
+                            .arg(file)
+                            .spawn()
+                    })?;
+            }
+            "open_in_subl" => {
+                Command::new("subl")
+                    .arg(format!("{}:{}", file_str, line))
+                    .spawn()
+                    .or_else(|_| {
+                        Command::new("open")
+                            .arg("-a").arg("Sublime Text")
+                            .arg(file)
+                            .spawn()
+                    })?;
+            }
+            _ => return Err(anyhow::anyhow!("Unknown action: {}", action_id)),
+        }
+
         Ok(())
     }
 }
