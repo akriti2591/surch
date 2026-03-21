@@ -5596,6 +5596,7 @@ dependencies = [
  "crossbeam-channel",
  "gpui",
  "gpui-component",
+ "rust-embed",
  "surch-core",
  "surch-file-search",
  "syntect",

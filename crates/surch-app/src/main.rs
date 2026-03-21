@@ -1,15 +1,17 @@
 mod app;
+mod assets;
 mod components;
 mod panels;
 mod sidebar;
 mod theme;
 
 use app::SurchApp;
+use assets::SurchAssets;
 use gpui::*;
 use gpui_component::Root;
 
 fn main() {
-    Application::new().run(|cx| {
+    Application::new().with_assets(SurchAssets).run(|cx| {
         gpui_component::init(cx);
 
         let window_options = WindowOptions {

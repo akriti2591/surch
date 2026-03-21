@@ -2,6 +2,8 @@ use crate::theme::SurchTheme;
 use gpui::*;
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::scroll::ScrollableElement;
+use gpui_component::spinner::Spinner;
+use gpui_component::{Icon, IconName, Sizable};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -303,24 +305,32 @@ impl SearchPanel {
     }
 
     fn render_status(&self) -> impl IntoElement {
-        let status_text = if self.is_searching {
-            "Searching...".to_string()
+        let mut container = div()
+            .px(px(12.0))
+            .py(px(6.0))
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .text_size(px(11.0))
+            .text_color(SurchTheme::text_secondary());
+
+        if self.is_searching {
+            container = container
+                .child(
+                    Spinner::new()
+                        .with_size(gpui_component::Size::XSmall)
+                        .color(SurchTheme::accent()),
+                )
+                .child("Searching...");
         } else if self.total_matches > 0 {
-            format!(
+            container = container.child(format!(
                 "{} results in {} files",
                 self.total_matches,
                 self.file_groups.len()
-            )
-        } else {
-            String::new()
-        };
+            ));
+        }
 
-        div()
-            .px(px(12.0))
-            .py(px(6.0))
-            .text_size(px(11.0))
-            .text_color(SurchTheme::text_secondary())
-            .child(status_text)
+        container
     }
 
     fn render_file_group(
@@ -355,10 +365,13 @@ impl SearchPanel {
                     cx.notify();
                 }))
                 .child(
-                    div()
-                        .text_size(px(8.0))
-                        .text_color(SurchTheme::text_muted())
-                        .child(if collapsed { "\u{25B6}" } else { "\u{25BC}" }),
+                    Icon::new(if collapsed {
+                        IconName::ChevronRight
+                    } else {
+                        IconName::ChevronDown
+                    })
+                    .size_3()
+                    .text_color(SurchTheme::text_muted()),
                 )
                 .child(
                     div()

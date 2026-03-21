@@ -1,5 +1,6 @@
 use crate::theme::SurchTheme;
 use gpui::*;
+use gpui_component::{Icon, IconName};
 use std::path::PathBuf;
 use std::rc::Rc;
 use surch_core::channel::ChannelAction;
@@ -117,10 +118,12 @@ impl PreviewPanel {
             .justify_center()
             .child(
                 div()
-                    .text_size(px(32.0))
-                    .text_color(SurchTheme::text_muted())
                     .mb(px(8.0))
-                    .child("\u{1F50E}"),
+                    .child(
+                        Icon::new(IconName::Search)
+                            .size(px(32.0))
+                            .text_color(SurchTheme::text_muted()),
+                    ),
             )
             .child(
                 div()
@@ -173,6 +176,14 @@ impl PreviewPanel {
                     .text_size(px(11.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(SurchTheme::text_heading())
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .child(
+                        Icon::new(IconName::ExternalLink)
+                            .size_3()
+                            .text_color(SurchTheme::text_heading()),
+                    )
                     .child("Open in...")
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.show_actions_menu = !this.show_actions_menu;

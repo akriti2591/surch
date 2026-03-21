@@ -4,6 +4,7 @@ use crate::sidebar::Sidebar;
 use crate::theme::SurchTheme;
 use crossbeam_channel::{Receiver, TryRecvError};
 use gpui::*;
+use gpui_component::{Icon, IconName};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -313,10 +314,12 @@ impl Render for SurchApp {
                         .items_center()
                         .child(
                             div()
-                                .text_size(px(48.0))
-                                .text_color(SurchTheme::text_muted())
                                 .mb(px(4.0))
-                                .child("\u{1F50E}"),
+                                .child(
+                                    Icon::new(IconName::Search)
+                                        .size(px(48.0))
+                                        .text_color(SurchTheme::text_muted()),
+                                ),
                         )
                         .child(
                             div()
@@ -344,6 +347,14 @@ impl Render for SurchApp {
                                 .text_size(px(13.0))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(SurchTheme::text_heading())
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(
+                                    Icon::new(IconName::FolderOpen)
+                                        .size_4()
+                                        .text_color(SurchTheme::text_heading()),
+                                )
                                 .child("Open Folder")
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_folder(window, cx);

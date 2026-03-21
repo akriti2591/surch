@@ -1,5 +1,6 @@
 use crate::theme::SurchTheme;
 use gpui::*;
+use gpui_component::{Icon, IconName};
 use surch_core::channel::ChannelMetadata;
 
 pub struct Sidebar {
@@ -15,10 +16,10 @@ impl Sidebar {
         }
     }
 
-    fn icon_for_channel(channel: &ChannelMetadata) -> &'static str {
+    fn icon_for_channel(channel: &ChannelMetadata) -> IconName {
         match channel.id.as_str() {
-            "file_search" => "\u{1F50D}",
-            _ => "\u{2726}",
+            "file_search" => IconName::Search,
+            _ => IconName::Asterisk,
         }
     }
 }
@@ -39,7 +40,7 @@ impl Render for Sidebar {
 
         for (i, channel) in self.channels.iter().enumerate() {
             let is_active = i == self.active_index;
-            let icon_str = Self::icon_for_channel(channel);
+            let icon_name = Self::icon_for_channel(channel);
 
             // Fixed-width row: 2px indicator bar + icon
             let indicator = div()
@@ -62,9 +63,13 @@ impl Render for Sidebar {
                 .rounded(px(6.0))
                 .cursor_pointer()
                 .child(
-                    div()
-                        .text_size(px(16.0))
-                        .child(icon_str),
+                    Icon::new(icon_name.clone())
+                        .size_4()
+                        .text_color(if is_active {
+                            SurchTheme::text_heading()
+                        } else {
+                            SurchTheme::text_secondary()
+                        }),
                 )
                 .on_click(cx.listener(move |this, _, _window, cx| {
                     this.active_index = i;
