@@ -115,7 +115,7 @@ These are hard-won lessons. Read before touching GPUI code:
 
 11. **gpui-component re-exports.** `pub use icon::*` and `pub use styled::*` at crate root means `Icon`, `IconName`, `Sizable`, `Size` are all at `gpui_component::`. The `spinner` module is NOT re-exported — use `gpui_component::spinner::Spinner`.
 
-12. **Never swap the view tree during a click handler.** If a click handler changes state that causes `render()` to return a completely different element tree (e.g., setting `workspace_root = None` switches from main view to welcome screen), GPUI panics with `panic_cannot_unwind` inside `handle_view_event` because the clicked element no longer exists. Fix: defer the state change with `cx.spawn(async move |_, cx| { ... }).detach()` so it executes on the next frame.
+12. **Defer any click handler that changes the element tree.** If a click handler mutates state that causes the render output to change structurally — swapping the entire view (e.g., welcome screen ↔ main view), changing a `uniform_list` item count (clearing/adding results), or removing the clicked element — GPUI panics with `panic_cannot_unwind` inside `handle_view_event`. This happens because GPUI is still processing the mouseUp event on an element that no longer exists in the new tree. **Fix:** wrap the mutation in `cx.spawn(async move |_, cx| { cx.update(|cx| { entity.update(cx, |app, cx| { /* mutate here */ }); }); }).detach()` to defer it to the next frame. This applies to any button that triggers: search refresh (clears + rebuilds results), close project (swaps to welcome screen), clear results, or any action that changes `flat_rows` length.
 
 ## Syntect Gotchas
 
