@@ -6,8 +6,8 @@ mod sidebar;
 mod theme;
 
 use app::{
-    ClearSearch, CloseProject, Copy, Cut, FocusFind, OpenFolder, OpenInEditor, Paste,
-    Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
+    ClearSearch, CloseProject, Copy, Cut, FindInPreview, FocusFind, OpenFolder, OpenInEditor,
+    Paste, Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
     GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord, ZoomIn, ZoomOut,
     ZoomReset,
 };
@@ -38,6 +38,7 @@ fn main() {
             KeyBinding::new("cmd--", ZoomOut, Some("surch")),
             KeyBinding::new("cmd-0", ZoomReset, Some("surch")),
             KeyBinding::new("cmd-g", GoToLine, Some("surch")),
+            KeyBinding::new("cmd-shift-f", FindInPreview, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -88,6 +89,7 @@ fn main() {
                 name: "Find".into(),
                 items: vec![
                     MenuItem::action("Find", FocusFind),
+                    MenuItem::action("Find in Preview", FindInPreview),
                     MenuItem::action("Clear Search", ClearSearch),
                     MenuItem::separator(),
                     MenuItem::action("Next Result", SelectNextResult),

@@ -23,6 +23,7 @@ actions!(
         OpenFolder,
         CloseProject,
         FocusFind,
+        FindInPreview,
         ToggleCaseSensitive,
         ToggleWholeWord,
         ToggleRegex,
@@ -594,6 +595,20 @@ impl SurchApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // If find-in-preview bar is active, dismiss it first instead of clearing search
+        let find_was_active = self.preview_panel.update(cx, |panel, _cx| {
+            if panel.find_active {
+                panel.hide_find();
+                true
+            } else {
+                false
+            }
+        });
+        if find_was_active {
+            cx.notify();
+            return;
+        }
+
         // Cancel any in-progress search
         if let Some(channel) = self.registry.active() {
             channel.cancel();
@@ -664,6 +679,17 @@ impl SurchApp {
     ) {
         self.preview_panel.update(cx, |panel, cx| {
             panel.show_go_to_line(window, cx);
+        });
+    }
+
+    fn handle_find_in_preview(
+        &mut self,
+        _: &FindInPreview,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, cx| {
+            panel.show_find(window, cx);
         });
     }
 
@@ -882,6 +908,7 @@ impl SurchApp {
             .on_action(cx.listener(Self::handle_zoom_out))
             .on_action(cx.listener(Self::handle_zoom_reset))
             .on_action(cx.listener(Self::handle_go_to_line))
+            .on_action(cx.listener(Self::handle_find_in_preview))
             // Catch unhandled MoveUp/MoveDown from single-line Input components.
             // Without these, arrow keys in single-line inputs cause a panic in
             // GPUI's do_command_by_selector (macOS text input callback) because
