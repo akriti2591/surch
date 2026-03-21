@@ -96,7 +96,8 @@ impl SurchTheme {
         hsla(0.63, 0.10, 0.18, 1.0)
     }
 
-    /// Focused input border
+    /// Focused input border (used by future focus ring styling)
+    #[allow(dead_code)]
     pub fn border_focus() -> Hsla {
         hsla(0.58, 0.60, 0.55, 0.60)
     }

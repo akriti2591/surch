@@ -64,10 +64,10 @@ Panels communicate via public callback fields (`on_query_changed`, `on_result_se
 ## Performance Rules
 
 ### Search Engine (`engine.rs`)
-- Uses `ignore` crate's `WalkBuilder` for directory traversal (respects .gitignore).
-- **Do NOT add Rayon directly** — use `ignore`'s `build_parallel()` instead of `build()` for parallel directory walking. This is what ripgrep does.
+- Uses `ignore` crate's `WalkBuilder` with **`build_parallel()`** for multi-threaded directory traversal (respects .gitignore). This is what ripgrep does — do NOT add Rayon directly.
+- Each parallel walker thread gets its own `Searcher` instance (not `Send`). Counters use `AtomicU64`/`AtomicUsize` for thread-safe progress tracking.
 - `grep-searcher` + `grep-regex` for file content search (ripgrep's library crates).
-- Cancellation via `AtomicBool` checked between files.
+- Cancellation via `AtomicBool` checked between files. Parallel walker returns `WalkState::Quit` on cancellation.
 
 ### UI Rendering
 - **Both panels use `uniform_list`** for virtualized rendering — only renders visible items. This is critical for large result sets (1000+ matches) and large files (1000+ lines). Do NOT replace with a naive `for` loop.
@@ -117,11 +117,17 @@ These are hard-won lessons. Read before touching GPUI code:
 
 12. **Defer any click handler that changes the element tree.** If a click handler mutates state that causes the render output to change structurally — swapping the entire view (e.g., welcome screen ↔ main view), changing a `uniform_list` item count (clearing/adding results), or removing the clicked element — GPUI panics with `panic_cannot_unwind` inside `handle_view_event`. This happens because GPUI is still processing the mouseUp event on an element that no longer exists in the new tree. **Fix:** wrap the mutation in `cx.spawn(async move |_, cx| { cx.update(|cx| { entity.update(cx, |app, cx| { /* mutate here */ }); }); }).detach()` to defer it to the next frame. This applies to any button that triggers: search refresh (clears + rebuilds results), close project (swaps to welcome screen), clear results, or any action that changes `flat_rows` length.
 
+13. **Menu bar actions need FocusHandle.** GPUI greys out menu items when `is_action_available()` can't find a handler in the focus dispatch path. The root view needs a `FocusHandle` with `track_focus()` on its root div, and ALL action handlers must be registered via `.on_action()` on that div. Register handlers on BOTH the welcome screen and main view divs, even if some are no-ops.
+
+14. **Keyboard shortcuts via `actions!()` + `KeyBinding::new()`.** Define actions with `actions!(surch, [OpenFolder, ...])`, bind keys with `cx.bind_keys([KeyBinding::new("cmd-o", OpenFolder, Some("surch"))])`, add `key_context("surch")` to root divs, and handle with `.on_action(cx.listener(Self::handle_open_folder))`.
+
 ## Syntect Gotchas
 
-12. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.
+15. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.
 
-13. **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
+16. **Strip `\r` before highlighting.** Windows line endings (`\r\n`) cause `highlight_line()` errors that silently break parser state. Always `trim_end_matches('\r')` before appending `\n` for syntect. On error, push the line as plain text but don't reset the highlighter — let it try to recover.
+
+17. **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
 
 ## Future: Tree-sitter for Syntax Highlighting
 
@@ -157,5 +163,6 @@ Editors are detected by scanning `/Applications` for `.app` bundles, not by `whi
 | `grep` + `grep-regex` + `grep-searcher` | ripgrep's search engine as a library |
 | `ignore` 0.4 | Directory walking with .gitignore, include/exclude globs, parallel walking |
 | `crossbeam-channel` | Background thread → UI communication |
-| `syntect` 5 | Syntax highlighting (base16-ocean.dark theme) |
+| `syntect` 5 | Syntax highlighting (One Dark theme) |
 | `rust-embed` 8 | Compile-time asset embedding (SVG icons) |
+| `num_cpus` 1 | CPU count for parallel walker thread pool |
