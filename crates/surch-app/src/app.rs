@@ -23,6 +23,11 @@ actions!(
         ToggleCaseSensitive,
         ToggleWholeWord,
         ToggleRegex,
+        Quit,
+        Cut,
+        Copy,
+        Paste,
+        SelectAll,
     ]
 );
 

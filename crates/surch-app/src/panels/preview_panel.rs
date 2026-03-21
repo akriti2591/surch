@@ -84,22 +84,37 @@ impl PreviewPanel {
 
                 let mut highlighted = Vec::with_capacity(raw_lines.len());
                 for line in &raw_lines {
+                    // Strip \r for Windows line endings that sneak through
+                    let clean_line = line.trim_end_matches('\r');
                     // highlight_line expects lines ending with \n when using
                     // load_defaults_newlines(). Without \n, syntect's parser
                     // state drifts and highlighting breaks after ~100 lines.
-                    let line_with_newline = format!("{}\n", line);
-                    let ranges = h
-                        .highlight_line(&line_with_newline, &self.syntax_set)
-                        .unwrap_or_default();
-                    let spans: Vec<(Hsla, String)> = ranges
-                        .into_iter()
-                        .map(|(style, text)| {
-                            // Strip the trailing \n we added for display
-                            let display_text = text.trim_end_matches('\n').to_string();
-                            (syntect_color_to_hsla(style.foreground), display_text)
-                        })
-                        .collect();
-                    highlighted.push(spans);
+                    let line_with_newline = format!("{}\n", clean_line);
+                    match h.highlight_line(&line_with_newline, &self.syntax_set) {
+                        Ok(ranges) => {
+                            // Keep ALL spans including empty ones — filtering them
+                            // causes syntect's parse state to desync. Skip empties
+                            // only at render time (render_code_lines already does this).
+                            let spans: Vec<(Hsla, String)> = ranges
+                                .into_iter()
+                                .map(|(style, text)| {
+                                    // Strip the trailing \n we added for display
+                                    let display_text =
+                                        text.trim_end_matches('\n').to_string();
+                                    (syntect_color_to_hsla(style.foreground), display_text)
+                                })
+                                .collect();
+                            highlighted.push(spans);
+                        }
+                        Err(_) => {
+                            // On error, push the raw line as plain text but DON'T
+                            // reset the highlighter — let it try to recover on next line
+                            highlighted.push(vec![(
+                                SurchTheme::text_primary(),
+                                clean_line.to_string(),
+                            )]);
+                        }
+                    }
                 }
 
                 self.file_content = raw_lines;

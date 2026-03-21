@@ -6,8 +6,8 @@ mod sidebar;
 mod theme;
 
 use app::{
-    CloseProject, FocusFind, OpenFolder, SurchApp, ToggleCaseSensitive, ToggleRegex,
-    ToggleWholeWord,
+    CloseProject, Copy, Cut, FocusFind, OpenFolder, Paste, Quit, SelectAll, SurchApp,
+    ToggleCaseSensitive, ToggleRegex, ToggleWholeWord,
 };
 use assets::SurchAssets;
 use gpui::*;
@@ -22,9 +22,54 @@ fn main() {
             KeyBinding::new("cmd-o", OpenFolder, Some("surch")),
             KeyBinding::new("cmd-w", CloseProject, Some("surch")),
             KeyBinding::new("cmd-f", FocusFind, Some("surch")),
+            KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("alt-c", ToggleCaseSensitive, Some("surch")),
             KeyBinding::new("alt-w", ToggleWholeWord, Some("surch")),
             KeyBinding::new("alt-r", ToggleRegex, Some("surch")),
+        ]);
+
+        // Quit handler at app level
+        cx.on_action(|_: &Quit, cx| {
+            cx.quit();
+        });
+
+        // Set up native macOS menu bar
+        cx.set_menus(vec![
+            Menu {
+                name: "surch".into(),
+                items: vec![
+                    MenuItem::action("About surch", Quit),
+                    MenuItem::separator(),
+                    MenuItem::action("Quit surch", Quit),
+                ],
+            },
+            Menu {
+                name: "File".into(),
+                items: vec![
+                    MenuItem::action("Open Folder...", OpenFolder),
+                    MenuItem::separator(),
+                    MenuItem::action("Close Project", CloseProject),
+                ],
+            },
+            Menu {
+                name: "Edit".into(),
+                items: vec![
+                    MenuItem::os_action("Cut", Cut, OsAction::Cut),
+                    MenuItem::os_action("Copy", Copy, OsAction::Copy),
+                    MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                    MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                ],
+            },
+            Menu {
+                name: "Find".into(),
+                items: vec![
+                    MenuItem::action("Find", FocusFind),
+                    MenuItem::separator(),
+                    MenuItem::action("Toggle Case Sensitive", ToggleCaseSensitive),
+                    MenuItem::action("Toggle Whole Word", ToggleWholeWord),
+                    MenuItem::action("Toggle Regex", ToggleRegex),
+                ],
+            },
         ]);
 
         let window_options = WindowOptions {
