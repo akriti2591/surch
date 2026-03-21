@@ -8,8 +8,8 @@ mod theme;
 use app::{
     ClearSearch, CloseProject, Copy, Cut, FocusFind, OpenFolder, OpenInEditor, Paste,
     Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
-    GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord, ZoomIn, ZoomOut,
-    ZoomReset,
+    GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord, ToggleWordWrap,
+    ZoomIn, ZoomOut, ZoomReset,
 };
 use assets::SurchAssets;
 use gpui::*;
@@ -38,6 +38,7 @@ fn main() {
             KeyBinding::new("cmd--", ZoomOut, Some("surch")),
             KeyBinding::new("cmd-0", ZoomReset, Some("surch")),
             KeyBinding::new("cmd-g", GoToLine, Some("surch")),
+            KeyBinding::new("alt-z", ToggleWordWrap, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -78,6 +79,8 @@ fn main() {
                     MenuItem::action("Zoom In", ZoomIn),
                     MenuItem::action("Zoom Out", ZoomOut),
                     MenuItem::action("Reset Zoom", ZoomReset),
+                    MenuItem::separator(),
+                    MenuItem::action("Toggle Word Wrap", ToggleWordWrap),
                 ],
             },
             Menu {

@@ -34,6 +34,7 @@ actions!(
         ZoomOut,
         ZoomReset,
         GoToLine,
+        ToggleWordWrap,
         Quit,
         Cut,
         Copy,
@@ -667,6 +668,18 @@ impl SurchApp {
         });
     }
 
+    fn handle_toggle_word_wrap(
+        &mut self,
+        _: &ToggleWordWrap,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.toggle_word_wrap();
+        });
+        cx.notify();
+    }
+
     /// Set the active workspace, save to recent history, and load workspace state.
     fn set_workspace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         // Save to recent workspaces
@@ -882,6 +895,7 @@ impl SurchApp {
             .on_action(cx.listener(Self::handle_zoom_out))
             .on_action(cx.listener(Self::handle_zoom_reset))
             .on_action(cx.listener(Self::handle_go_to_line))
+            .on_action(cx.listener(Self::handle_toggle_word_wrap))
             // Catch unhandled MoveUp/MoveDown from single-line Input components.
             // Without these, arrow keys in single-line inputs cause a panic in
             // GPUI's do_command_by_selector (macOS text input callback) because

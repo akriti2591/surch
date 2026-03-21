@@ -37,6 +37,7 @@ pub struct PreviewPanel {
     syntax_set: SyntaxSet,
     theme: Theme,
     font_size: f32,
+    word_wrap: bool,
     go_to_line_active: bool,
     go_to_line_input: Option<Entity<InputState>>,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
@@ -60,6 +61,7 @@ impl PreviewPanel {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme: one_dark_theme,
             font_size: DEFAULT_FONT_SIZE,
+            word_wrap: false,
             go_to_line_active: false,
             go_to_line_input: None,
             on_action_selected: None,
@@ -188,6 +190,14 @@ impl PreviewPanel {
 
     pub fn zoom_reset(&mut self) {
         self.font_size = DEFAULT_FONT_SIZE;
+    }
+
+    pub fn toggle_word_wrap(&mut self) {
+        self.word_wrap = !self.word_wrap;
+    }
+
+    pub fn word_wrap(&self) -> bool {
+        self.word_wrap
     }
 
     pub fn show_go_to_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -431,6 +441,7 @@ impl PreviewPanel {
         let line_count = self.file_content.len();
         let highlighted = self.highlighted_lines.clone();
         let font_size = self.font_size;
+        let word_wrap = self.word_wrap;
 
         uniform_list("code-lines", line_count, move |range, _window, _cx| {
             let mut items = Vec::new();
@@ -440,7 +451,10 @@ impl PreviewPanel {
 
                 let line_content = if let Some(spans) = highlighted.get(i) {
                     let mut span_container =
-                        div().flex_1().flex().flex_row().whitespace_nowrap();
+                        div().flex_1().flex().flex_row();
+                    if !word_wrap {
+                        span_container = span_container.whitespace_nowrap();
+                    }
                     for (color, text) in spans {
                         if !text.is_empty() {
                             span_container = span_container
@@ -449,13 +463,16 @@ impl PreviewPanel {
                     }
                     span_container
                 } else {
-                    div()
+                    let mut empty_div = div()
                         .flex_1()
                         .flex()
                         .flex_row()
-                        .whitespace_nowrap()
                         .text_color(SurchTheme::text_primary())
-                        .child("")
+                        .child("");
+                    if !word_wrap {
+                        empty_div = empty_div.whitespace_nowrap();
+                    }
+                    empty_div
                 };
 
                 let mut line_div = div()
