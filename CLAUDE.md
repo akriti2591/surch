@@ -77,11 +77,11 @@ Panels communicate via public callback fields (`on_query_changed`, `on_result_se
 - Use `overflow_hidden()` on fixed-width panels to prevent width fluctuations.
 
 ### Syntax Highlighting
-- Uses `syntect` with `base16-ocean.dark` theme.
+- Uses `syntect` with a custom **One Dark** theme (`assets/themes/one-dark.tmTheme`). Switched from `base16-ocean.dark` which was too muted/dull.
 - **Use `find_syntax_for_file()`** — it tries filename, then extension, then first-line detection (shebangs). Do NOT use `find_syntax_by_extension()` (fails on compound extensions like `.htmltemplate`).
 - **Append `\n` to each line** before calling `highlight_line()` when using `SyntaxSet::load_defaults_newlines()`. Without the trailing newline, syntect's parser state drifts and highlighting breaks after ~100 lines.
 - Highlighted spans are pre-computed in `load_file()` and stored as `Rc<Vec<Vec<(Hsla, String)>>>` for sharing with the uniform_list render closure.
-- **Replace `\t` with 4 spaces** when loading files. GPUI has no tab-size CSS property — tabs render at 8-space width by default, which looks broken. Convert on load.
+- Preview pane uses **Menlo 14px** — matches VS Code's macOS default. Do not use SF Mono (narrower character width makes indentation look shallow).
 
 ## GPUI Gotchas
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use surch_core::channel::ChannelAction;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
+use syntect::highlighting::{Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 
 fn syntect_color_to_hsla(color: syntect::highlighting::Color) -> gpui::Hsla {
@@ -28,12 +28,15 @@ pub struct PreviewPanel {
     show_actions_menu: bool,
     scroll_handle: UniformListScrollHandle,
     syntax_set: SyntaxSet,
-    theme_set: ThemeSet,
+    theme: Theme,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
 }
 
 impl PreviewPanel {
     pub fn new() -> Self {
+        // Load custom One Dark theme from embedded asset
+        let one_dark_theme = Self::load_one_dark_theme();
+
         Self {
             file_path: None,
             file_content: Vec::new(),
@@ -44,17 +47,26 @@ impl PreviewPanel {
             show_actions_menu: false,
             scroll_handle: UniformListScrollHandle::default(),
             syntax_set: SyntaxSet::load_defaults_newlines(),
-            theme_set: ThemeSet::load_defaults(),
+            theme: one_dark_theme,
             on_action_selected: None,
         }
+    }
+
+    fn load_one_dark_theme() -> Theme {
+        let theme_bytes = include_bytes!("../../assets/themes/one-dark.tmTheme");
+        let cursor = std::io::Cursor::new(&theme_bytes[..]);
+        ThemeSet::load_from_reader(&mut std::io::BufReader::new(cursor))
+            .unwrap_or_else(|_| {
+                // Fallback to base16-eighties.dark if custom theme fails
+                let ts = ThemeSet::load_defaults();
+                ts.themes["base16-eighties.dark"].clone()
+            })
     }
 
     pub fn load_file(&mut self, path: PathBuf, focus_line: usize, pattern: Option<String>) {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
-                // Replace tabs with 4 spaces for consistent indentation rendering.
-                // GPUI renders tabs at default 8-space width; there's no tab-size property.
-                let raw_lines: Vec<String> = content.lines().map(|l| l.replace('\t', "    ")).collect();
+                let raw_lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
 
                 // Determine syntax — try filename, extension, then first line
                 let syntax = self
@@ -68,8 +80,7 @@ impl PreviewPanel {
                             .and_then(|line| self.syntax_set.find_syntax_by_first_line(line))
                     })
                     .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-                let theme = &self.theme_set.themes["base16-ocean.dark"];
-                let mut h = HighlightLines::new(syntax, theme);
+                let mut h = HighlightLines::new(syntax, &self.theme);
 
                 let mut highlighted = Vec::with_capacity(raw_lines.len());
                 for line in &raw_lines {
@@ -280,6 +291,7 @@ impl PreviewPanel {
                     .w_full()
                     .flex()
                     .px_1()
+                    .py(px(1.0))
                     .child(
                         div()
                             .min_w(px(52.0))
@@ -304,8 +316,8 @@ impl PreviewPanel {
             items
         })
         .flex_1()
-        .font_family("SF Mono")
-        .text_size(px(13.0))
+        .font_family("Menlo")
+        .text_size(px(14.0))
         .track_scroll(self.scroll_handle.clone())
     }
 }
