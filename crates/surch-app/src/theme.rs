@@ -89,6 +89,16 @@ impl SurchTheme {
         hsla(0.58, 0.60, 0.55, 0.30)
     }
 
+    /// Replace preview: old text background (red-tinted)
+    pub fn replace_old_bg() -> Hsla {
+        hsla(0.0, 0.60, 0.30, 0.40)
+    }
+
+    /// Replace preview: new text background (green-tinted)
+    pub fn replace_new_bg() -> Hsla {
+        hsla(0.35, 0.60, 0.30, 0.40)
+    }
+
     // === Borders ===
 
     /// Panel dividers, subtle borders

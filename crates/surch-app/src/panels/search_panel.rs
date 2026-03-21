@@ -351,7 +351,11 @@ impl SearchPanel {
         }))
     }
 
-    fn render_highlighted_line(content: &str, ranges: &[Range<usize>]) -> Div {
+    fn render_highlighted_line(
+        content: &str,
+        ranges: &[Range<usize>],
+        replace_text: Option<&str>,
+    ) -> Div {
         // Trim leading whitespace and adjust match ranges accordingly
         let trimmed_start = content.len() - content.trim_start().len();
         let display_content = content.trim_start();
@@ -396,14 +400,37 @@ impl SearchPanel {
                 );
             }
             if end > start {
-                container = container.child(
-                    div()
-                        .bg(SurchTheme::match_bg())
-                        .text_color(SurchTheme::text_match())
-                        .rounded(px(2.0))
-                        .px(px(1.0))
-                        .child(display_content[start..end].to_string()),
-                );
+                if let Some(replacement) = replace_text {
+                    // Replace preview mode: strikethrough old + green new
+                    container = container
+                        .child(
+                            div()
+                                .bg(SurchTheme::replace_old_bg())
+                                .text_color(SurchTheme::text_primary())
+                                .line_through()
+                                .rounded(px(2.0))
+                                .px(px(1.0))
+                                .child(display_content[start..end].to_string()),
+                        )
+                        .child(
+                            div()
+                                .bg(SurchTheme::replace_new_bg())
+                                .text_color(SurchTheme::text_heading())
+                                .rounded(px(2.0))
+                                .px(px(1.0))
+                                .child(replacement.to_string()),
+                        );
+                } else {
+                    // Normal match highlight
+                    container = container.child(
+                        div()
+                            .bg(SurchTheme::match_bg())
+                            .text_color(SurchTheme::text_match())
+                            .rounded(px(2.0))
+                            .px(px(1.0))
+                            .child(display_content[start..end].to_string()),
+                    );
+                }
             }
             last_end = end;
         }
@@ -707,6 +734,11 @@ impl Render for SearchPanel {
         let row_count = self.flat_rows.len();
         let rows_snapshot = self.flat_rows.clone();
         let selected = self.selected_result;
+        let replace_text: Option<String> = self
+            .inputs
+            .get("replace")
+            .map(|input| input.read(cx).value().to_string())
+            .filter(|s| !s.is_empty());
 
         panel = panel.child(
             uniform_list("search-results", row_count, {
@@ -823,6 +855,7 @@ impl Render for SearchPanel {
                                     .child(SearchPanel::render_highlighted_line(
                                         &content,
                                         &match_ranges,
+                                        replace_text.as_deref(),
                                     ));
 
                                 if is_selected {

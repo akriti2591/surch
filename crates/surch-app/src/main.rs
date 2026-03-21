@@ -8,7 +8,8 @@ mod theme;
 use app::{
     ClearSearch, CloseProject, Copy, Cut, FocusFind, OpenFolder, OpenInEditor, Paste,
     Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
-    ToggleCaseSensitive, ToggleRegex, ToggleWholeWord,
+    GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord, ZoomIn, ZoomOut,
+    ZoomReset,
 };
 use assets::SurchAssets;
 use gpui::*;
@@ -31,6 +32,10 @@ fn main() {
             KeyBinding::new("up", SelectPreviousResult, Some("surch")),
             KeyBinding::new("cmd-shift-enter", OpenInEditor, Some("surch")),
             KeyBinding::new("escape", ClearSearch, Some("surch")),
+            KeyBinding::new("cmd-=", ZoomIn, Some("surch")),
+            KeyBinding::new("cmd--", ZoomOut, Some("surch")),
+            KeyBinding::new("cmd-0", ZoomReset, Some("surch")),
+            KeyBinding::new("cmd-g", GoToLine, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -66,6 +71,18 @@ fn main() {
                 ],
             },
             Menu {
+                name: "View".into(),
+                items: vec![
+                    MenuItem::action("Zoom In", ZoomIn),
+                    MenuItem::action("Zoom Out", ZoomOut),
+                    MenuItem::action("Reset Zoom", ZoomReset),
+                ],
+            },
+            Menu {
+                name: "Go".into(),
+                items: vec![MenuItem::action("Go to Line...", GoToLine)],
+            },
+            Menu {
                 name: "Find".into(),
                 items: vec![
                     MenuItem::action("Find", FocusFind),
@@ -90,6 +107,8 @@ fn main() {
             ))),
             titlebar: Some(TitlebarOptions {
                 title: Some("surch".into()),
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(9.0), px(9.0))),
                 ..Default::default()
             }),
             ..Default::default()

@@ -1,5 +1,6 @@
 use crate::theme::SurchTheme;
 use gpui::*;
+use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{Icon, IconName};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -18,7 +19,13 @@ fn syntect_color_to_hsla(color: syntect::highlighting::Color) -> gpui::Hsla {
     .into()
 }
 
+const DEFAULT_FONT_SIZE: f32 = 14.0;
+const MIN_FONT_SIZE: f32 = 8.0;
+const MAX_FONT_SIZE: f32 = 32.0;
+const FONT_SIZE_STEP: f32 = 2.0;
+
 pub struct PreviewPanel {
+    workspace_root: Option<PathBuf>,
     file_path: Option<PathBuf>,
     file_content: Vec<String>,
     highlighted_lines: Rc<Vec<Vec<(Hsla, String)>>>,
@@ -29,6 +36,9 @@ pub struct PreviewPanel {
     scroll_handle: UniformListScrollHandle,
     syntax_set: SyntaxSet,
     theme: Theme,
+    font_size: f32,
+    go_to_line_active: bool,
+    go_to_line_input: Option<Entity<InputState>>,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
 }
 
@@ -38,6 +48,7 @@ impl PreviewPanel {
         let one_dark_theme = Self::load_one_dark_theme();
 
         Self {
+            workspace_root: None,
             file_path: None,
             file_content: Vec::new(),
             highlighted_lines: Rc::new(Vec::new()),
@@ -48,6 +59,9 @@ impl PreviewPanel {
             scroll_handle: UniformListScrollHandle::default(),
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme: one_dark_theme,
+            font_size: DEFAULT_FONT_SIZE,
+            go_to_line_active: false,
+            go_to_line_input: None,
             on_action_selected: None,
         }
     }
@@ -149,8 +163,92 @@ impl PreviewPanel {
         self.show_actions_menu = false;
     }
 
+    pub fn set_workspace_root(&mut self, root: PathBuf) {
+        self.workspace_root = Some(root);
+    }
+
     pub fn set_actions(&mut self, actions: Vec<ChannelAction>) {
         self.actions = actions;
+    }
+
+    pub fn zoom_in(&mut self) {
+        self.font_size = (self.font_size + FONT_SIZE_STEP).min(MAX_FONT_SIZE);
+    }
+
+    pub fn zoom_out(&mut self) {
+        self.font_size = (self.font_size - FONT_SIZE_STEP).max(MIN_FONT_SIZE);
+    }
+
+    pub fn zoom_reset(&mut self) {
+        self.font_size = DEFAULT_FONT_SIZE;
+    }
+
+    pub fn show_go_to_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.file_path.is_none() {
+            return;
+        }
+        let total_lines = self.file_content.len();
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(format!("Go to line (1-{})", total_lines))
+        });
+
+        // Subscribe to input events to handle Enter key
+        cx.subscribe_in(&input, window, {
+            move |this: &mut PreviewPanel, _state, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.execute_go_to_line(cx);
+                }
+            }
+        })
+        .detach();
+
+        // Focus the input
+        input.update(cx, |state, cx| {
+            state.focus(window, cx);
+        });
+
+        self.go_to_line_input = Some(input);
+        self.go_to_line_active = true;
+        cx.notify();
+    }
+
+    #[allow(dead_code)]
+    pub fn dismiss_go_to_line(&mut self) {
+        self.go_to_line_active = false;
+        self.go_to_line_input = None;
+    }
+
+    fn execute_go_to_line(&mut self, cx: &mut Context<Self>) {
+        if let Some(ref input) = self.go_to_line_input {
+            let value = input.read(cx).value().to_string();
+            if let Ok(line_num) = value.trim().parse::<usize>() {
+                let line = line_num.max(1).min(self.file_content.len());
+                self.focus_line = Some(line);
+                let scroll_to = line.saturating_sub(6);
+                self.scroll_handle
+                    .scroll_to_item(scroll_to, ScrollStrategy::Top);
+            }
+        }
+        self.go_to_line_active = false;
+        self.go_to_line_input = None;
+        cx.notify();
+    }
+
+    fn render_go_to_line_overlay(&self) -> Div {
+        let input = self.go_to_line_input.as_ref().unwrap();
+        div()
+            .absolute()
+            .top(px(40.0)) // Below the header
+            .right(px(16.0))
+            .w(px(250.0))
+            .bg(SurchTheme::bg_surface())
+            .border_1()
+            .border_color(SurchTheme::border())
+            .rounded(px(6.0))
+            .shadow_lg()
+            .p(px(8.0))
+            .child(gpui_component::input::Input::new(input).w_full())
     }
 
     fn render_empty(&self) -> Div {
@@ -178,12 +276,6 @@ impl PreviewPanel {
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> Div {
-        let path_display = self
-            .file_path
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-
         let mut header = div()
             .w_full()
             .px(px(16.0))
@@ -195,16 +287,61 @@ impl PreviewPanel {
             .bg(SurchTheme::bg_secondary())
             .flex_shrink_0();
 
-        // File path
-        header = header.child(
-            div()
+        // Breadcrumb path — show relative segments with chevron separators
+        if let Some(ref file_path) = self.file_path {
+            let relative = if let Some(ref root) = self.workspace_root {
+                file_path
+                    .strip_prefix(root)
+                    .unwrap_or(file_path)
+            } else {
+                file_path.as_path()
+            };
+
+            let segments: Vec<String> = relative
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .collect();
+
+            let mut breadcrumb = div()
                 .flex_1()
-                .text_size(px(12.0))
-                .text_color(SurchTheme::text_primary())
+                .flex()
+                .items_center()
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .child(path_display),
-        );
+                .gap(px(2.0));
+
+            for (i, segment) in segments.iter().enumerate() {
+                let is_last = i == segments.len() - 1;
+
+                if i > 0 {
+                    // Chevron separator
+                    breadcrumb = breadcrumb.child(
+                        Icon::new(IconName::ChevronRight)
+                            .size(px(12.0))
+                            .text_color(SurchTheme::text_muted()),
+                    );
+                }
+
+                let text_color = if is_last {
+                    SurchTheme::text_heading()
+                } else {
+                    SurchTheme::text_secondary()
+                };
+
+                let mut seg_div = div()
+                    .text_size(px(12.0))
+                    .text_color(text_color)
+                    .child(segment.clone());
+
+                if is_last {
+                    seg_div = seg_div.font_weight(FontWeight::MEDIUM);
+                }
+
+                breadcrumb = breadcrumb.child(seg_div);
+            }
+
+            header = header.child(breadcrumb);
+        }
 
         // "Open in" button
         if !self.actions.is_empty() {
@@ -286,6 +423,7 @@ impl PreviewPanel {
         let focus = self.focus_line.unwrap_or(0);
         let line_count = self.file_content.len();
         let highlighted = self.highlighted_lines.clone();
+        let font_size = self.font_size;
 
         uniform_list("code-lines", line_count, move |range, _window, _cx| {
             let mut items = Vec::new();
@@ -343,7 +481,7 @@ impl PreviewPanel {
         })
         .flex_1()
         .font_family("Menlo")
-        .text_size(px(14.0))
+        .text_size(px(font_size))
         .track_scroll(self.scroll_handle.clone())
     }
 }
@@ -366,6 +504,10 @@ impl Render for PreviewPanel {
 
         if self.show_actions_menu {
             panel = panel.child(self.render_actions_menu(cx));
+        }
+
+        if self.go_to_line_active && self.go_to_line_input.is_some() {
+            panel = panel.child(self.render_go_to_line_overlay());
         }
 
         panel = panel.child(self.render_code_lines(cx));

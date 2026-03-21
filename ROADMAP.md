@@ -264,8 +264,25 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `surch-core/src/channel.rs`, new `surch-core/src/fuzzy.rs`, `search_panel.rs`, `surch-file-search/src/engine.rs`
 
-#### 2.12 Replace Preview (Inline Diff)
-**Status:** Not implemented.
+#### 2.11b Split "Open In" Button
+**Status:** Not implemented. Currently a single "Open in..." button with dropdown.
+**UX Behavior:** Replace the single "Open in..." button with a **split button** (dual button) like Cursor's preview panel:
+- **Left half (major):** Shows the default/last-used editor name (e.g., "Cursor") and opens directly on click — no dropdown.
+- **Right half (chevron):** Small dropdown chevron that opens the full editor menu on click.
+
+This gives one-click access to the preferred editor while still allowing switching. The last-used editor choice should be persisted in config.
+
+**Implementation:**
+- Render two adjacent divs styled as a single pill-shaped button with a divider line between them.
+- Store `preferred_editor: Option<String>` in `AppConfig` — set when user picks from the dropdown.
+- Left half calls `execute_action(preferred_editor_id)` directly; right half toggles the dropdown menu.
+- First time (no preference): behave like current single button.
+**Complexity:** M
+**Dependencies:** Editor auto-detection (done)
+**Files:** `preview_panel.rs`, `config.rs`
+
+#### 2.12 Replace Preview (Inline Diff) ✅
+**Status:** Implemented — when replace input has text, match rows show strikethrough old text (red bg) + replacement text (green bg) inline. Uses `line_through()` styling.
 **UX Behavior:** When a replacement string is entered, each match line in the results list shows a preview of the replacement. The original matched text is shown with strikethrough and a red-tinted background, and the replacement text is shown with a green-tinted background immediately after it. This gives users confidence about what will change before they click Replace All.
 **Implementation:**
 - In `render_highlighted_line()`, when a replace value is present, render each match span as: `[strikethrough old text] [green new text]` instead of just `[highlighted old text]`.
@@ -303,8 +320,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Dependencies:** Settings UI (4.1) for theme picker, or standalone menu item
 **Files:** `theme.rs` (refactor to trait/struct), new `themes/` module, `config.rs`, `preview_panel.rs` (syntect theme)
 
-#### 2.14 Custom Themed Title Bar
-**Status:** Using native macOS title bar via `TitlebarOptions`. It doesn't respect the app's color theme.
+#### 2.14 Custom Themed Title Bar ✅
+**Status:** Implemented — transparent title bar with custom-drawn title div matching the app theme. Uses `appears_transparent: true` + `traffic_light_position` for macOS traffic lights. Shows workspace name when a folder is open.
 **UX Behavior:** Replace the native macOS title bar with a custom-drawn title bar that matches the app's theme, similar to how Zed renders its title bar. The title bar should:
 - Match the app's background color (e.g., Monokai Pro's dark charcoal)
 - Show the workspace name / folder name as the window title
@@ -318,8 +335,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `main.rs` (TitlebarOptions), `app.rs` (render custom title bar div)
 
-#### 2.15 Preview Pane Zoom (Font Size +/-)
-**Status:** Not implemented. Preview pane uses hardcoded Menlo 14px.
+#### 2.15 Preview Pane Zoom (Font Size +/-) ✅
+**Status:** Implemented — Cmd+=/Cmd+-/Cmd+0 for zoom in/out/reset. Font size range 8-32px in 2px steps. View menu with Zoom In/Out/Reset items.
 **UX Behavior:** `Cmd+=` (or `Cmd++`) increases the preview pane font size. `Cmd+-` decreases it. `Cmd+0` resets to default (14px). The zoom level should be shown briefly as an overlay ("120%") and then fade. Font size range: 8px – 32px. Zoom level persists per session (optionally per workspace in `state.json`).
 **Implementation:**
 - Add `preview_font_size: f32` to `SurchApp` state (default 14.0).
@@ -340,8 +357,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Dependencies:** May require variable-height list instead of `uniform_list`
 **Files:** `preview_panel.rs`, `app.rs` (menu item + action)
 
-#### 2.17 Go to Line
-**Status:** Not implemented.
+#### 2.17 Go to Line ✅
+**Status:** Implemented — Cmd+G opens floating input overlay on preview pane. Type line number, press Enter to jump. Go menu in menu bar.
 **UX Behavior:** `Cmd+G` opens a small input overlay (like VS Code's "Go to Line" dialog) in the preview pane. User types a line number, presses Enter, and the preview scrolls to that line and highlights it. Escape dismisses the overlay.
 **Implementation:**
 - Add a `GoToLine` action with `Cmd+G` keybinding.
@@ -536,7 +553,7 @@ Phase 1 — Fix what's broken (Alpha):
 Phase 2 — Replace workflow + polish (Beta):
   Replace All button                          ✅     (L) — Done
   Replace: Preserve Case                            (M) — Week 5
-  Replace Preview (inline diff)                     (M) — Week 6
+  Replace Preview (inline diff)               ✅     (M) — Done
   Panel resizing (draggable divider)                (M) — Week 6
   Search result text truncation                     (S) — Week 6
   Fuzzy finding (cross-channel)                     (M) — Week 6-7
@@ -547,10 +564,10 @@ Phase 2 — Replace workflow + polish (Beta):
   Menu bar                                 ✅        (M) — Done
   Sidebar icons                                     (S) — Week 8
   Monokai Pro theme + theming system                (L) — Week 9
-  Custom themed title bar                           (M) — Week 9
-  Preview pane zoom (Cmd+/Cmd-)                     (S) — Week 10
+  Custom themed title bar                    ✅      (M) — Done
+  Preview pane zoom (Cmd+/Cmd-)              ✅     (S) — Done
   Word wrap toggle                                  (M) — Week 10
-  Go to line (Cmd+G)                                (S) — Week 10
+  Go to line (Cmd+G)                         ✅     (S) — Done
   Find in preview (Cmd+F)                           (M) — Week 10-11
   Design system & consistency                       (L) — Week 11-12
 

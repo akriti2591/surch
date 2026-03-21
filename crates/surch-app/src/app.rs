@@ -28,6 +28,10 @@ actions!(
         SelectPreviousResult,
         OpenInEditor,
         ClearSearch,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset,
+        GoToLine,
         Quit,
         Cut,
         Copy,
@@ -578,6 +582,53 @@ impl SurchApp {
         .detach();
     }
 
+    fn handle_zoom_in(
+        &mut self,
+        _: &ZoomIn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.zoom_in();
+        });
+        cx.notify();
+    }
+
+    fn handle_zoom_out(
+        &mut self,
+        _: &ZoomOut,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.zoom_out();
+        });
+        cx.notify();
+    }
+
+    fn handle_zoom_reset(
+        &mut self,
+        _: &ZoomReset,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.zoom_reset();
+        });
+        cx.notify();
+    }
+
+    fn handle_go_to_line(
+        &mut self,
+        _: &GoToLine,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, cx| {
+            panel.show_go_to_line(window, cx);
+        });
+    }
+
     /// Set the active workspace, save to recent history, and load workspace state.
     fn set_workspace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         // Save to recent workspaces
@@ -588,6 +639,9 @@ impl SurchApp {
         let ws_state = WorkspaceState::load(&path);
 
         self.workspace_root = Some(path.clone());
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.set_workspace_root(path.clone());
+        });
         self.search_panel.update(cx, |panel, _cx| {
             panel.set_workspace_root(path);
             // Restore last search options from workspace state
@@ -725,6 +779,38 @@ impl SurchApp {
     }
 }
 
+impl SurchApp {
+    /// Render a custom title bar that blends with the app theme.
+    /// With appears_transparent + traffic_light_position, the OS title bar
+    /// is invisible and we draw our own.
+    fn render_title_bar(&self) -> Div {
+        let title = if let Some(ref root) = self.workspace_root {
+            root.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "surch".to_string())
+        } else {
+            "surch".to_string()
+        };
+
+        div()
+            .w_full()
+            .h(px(32.0))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(SurchTheme::bg_sidebar())
+            .border_b_1()
+            .border_color(SurchTheme::border())
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(SurchTheme::text_secondary())
+                    .child(title),
+            )
+    }
+}
+
 impl Render for SurchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.workspace_root.is_none() {
@@ -742,17 +828,22 @@ impl Render for SurchApp {
                 .on_action(cx.listener(Self::handle_select_previous))
                 .on_action(cx.listener(Self::handle_open_in_editor))
                 .on_action(cx.listener(Self::handle_clear_search))
+                .on_action(cx.listener(Self::handle_zoom_in))
+                .on_action(cx.listener(Self::handle_zoom_out))
+                .on_action(cx.listener(Self::handle_zoom_reset))
+                .on_action(cx.listener(Self::handle_go_to_line))
                 .size_full()
                 .flex()
                 .flex_col()
-                .items_center()
-                .justify_center()
                 .bg(SurchTheme::bg_primary())
+                .child(self.render_title_bar())
                 .child(
                     div()
+                        .flex_1()
                         .flex()
                         .flex_col()
                         .items_center()
+                        .justify_center()
                         .child(
                             div()
                                 .mb(px(4.0))
@@ -825,13 +916,27 @@ impl Render for SurchApp {
             .on_action(cx.listener(Self::handle_toggle_regex))
             .on_action(cx.listener(Self::handle_select_next))
             .on_action(cx.listener(Self::handle_select_previous))
+            .on_action(cx.listener(Self::handle_open_in_editor))
+            .on_action(cx.listener(Self::handle_clear_search))
+            .on_action(cx.listener(Self::handle_zoom_in))
+            .on_action(cx.listener(Self::handle_zoom_out))
+            .on_action(cx.listener(Self::handle_zoom_reset))
+            .on_action(cx.listener(Self::handle_go_to_line))
             .size_full()
             .flex()
-            .flex_row()
+            .flex_col()
             .bg(SurchTheme::bg_primary())
-            .child(self.sidebar.clone())
-            .child(self.search_panel.clone())
-            .child(self.preview_panel.clone())
+            .child(self.render_title_bar())
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_row()
+                    .overflow_hidden()
+                    .child(self.sidebar.clone())
+                    .child(self.search_panel.clone())
+                    .child(self.preview_panel.clone()),
+            )
             .into_any_element()
     }
 }
