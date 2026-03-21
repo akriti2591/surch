@@ -145,6 +145,13 @@ impl SearchPanel {
         cx.notify();
     }
 
+    /// Restore search options from persisted workspace state.
+    pub fn restore_options(&mut self, case_sensitive: bool, whole_word: bool, is_regex: bool) {
+        self.case_sensitive = case_sensitive;
+        self.whole_word = whole_word;
+        self.is_regex = is_regex;
+    }
+
     fn on_input_changed(&mut self, _field_id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let values = self.collect_input_values(cx);
         if let Some(ref handler) = self.on_query_changed {

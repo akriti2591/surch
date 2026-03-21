@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use surch_core::channel::{ChannelQuery, SearchEvent};
+use surch_core::config::{AppConfig, WorkspaceState};
 use surch_core::registry::ChannelRegistry;
 use surch_file_search::FileSearchChannel;
 
@@ -41,6 +42,7 @@ pub struct SurchApp {
     pending_query: Option<HashMap<String, String>>,
     current_result: Option<SearchResultItem>,
     focus_handle: FocusHandle,
+    app_config: AppConfig,
 }
 
 impl SurchApp {
@@ -64,6 +66,8 @@ impl SurchApp {
         let search_panel = cx.new(|cx| SearchPanel::new(input_fields, window, cx));
         let preview_panel = cx.new(|_cx| PreviewPanel::new());
 
+        let app_config = AppConfig::load();
+
         let mut app = Self {
             sidebar,
             search_panel,
@@ -74,6 +78,7 @@ impl SurchApp {
             pending_query: None,
             current_result: None,
             focus_handle: cx.focus_handle(),
+            app_config,
         };
 
         app.setup_callbacks(window, cx);
@@ -310,6 +315,9 @@ impl SurchApp {
     }
 
     fn close_project(&mut self, cx: &mut Context<Self>) {
+        // Save workspace state before closing
+        self.save_workspace_state(cx);
+
         // Defer the actual state change to avoid crashing GPUI
         // when the view tree changes during click event processing.
         let entity = cx.entity().clone();
@@ -406,6 +414,123 @@ impl SurchApp {
         });
     }
 
+    /// Set the active workspace, save to recent history, and load workspace state.
+    fn set_workspace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        // Save to recent workspaces
+        self.app_config.add_recent_workspace(path.clone());
+        let _ = self.app_config.save();
+
+        // Load workspace-specific state (search history, filters, etc.)
+        let ws_state = WorkspaceState::load(&path);
+
+        self.workspace_root = Some(path.clone());
+        self.search_panel.update(cx, |panel, _cx| {
+            panel.set_workspace_root(path);
+            // Restore last search options from workspace state
+            panel.restore_options(ws_state.case_sensitive, ws_state.whole_word, ws_state.is_regex);
+        });
+        cx.notify();
+    }
+
+    /// Save current workspace state before closing.
+    fn save_workspace_state(&self, cx: &mut Context<Self>) {
+        if let Some(ref workspace_path) = self.workspace_root {
+            let (case_sensitive, whole_word, is_regex) =
+                self.search_panel.read(cx).search_options();
+            let mut ws_state = WorkspaceState::load(workspace_path);
+            ws_state.case_sensitive = case_sensitive;
+            ws_state.whole_word = whole_word;
+            ws_state.is_regex = is_regex;
+            // TODO: Save search/replace/filter history when those features land
+            let _ = ws_state.save(workspace_path);
+        }
+    }
+
+    fn render_recent_workspaces(&self, cx: &mut Context<Self>) -> Option<Div> {
+        if self.app_config.recent_workspaces.is_empty() {
+            return None;
+        }
+
+        let mut list = div()
+            .mt(px(24.0))
+            .w(px(320.0))
+            .flex()
+            .flex_col();
+
+        list = list.child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(SurchTheme::text_muted())
+                .mb(px(8.0))
+                .child("RECENT"),
+        );
+
+        for (idx, recent) in self.app_config.recent_workspaces.iter().enumerate() {
+            let path = recent.path.clone();
+            let folder_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.to_string_lossy().to_string());
+            let full_path = path.to_string_lossy().to_string();
+
+            // Shorten home directory for display
+            let display_path = if let Some(home) = dirs::home_dir() {
+                if let Ok(stripped) = path.strip_prefix(&home) {
+                    format!("~/{}", stripped.display())
+                } else {
+                    full_path.clone()
+                }
+            } else {
+                full_path.clone()
+            };
+
+            list = list.child(
+                div()
+                    .id(ElementId::Name(format!("recent-{}", idx).into()))
+                    .w_full()
+                    .px(px(8.0))
+                    .py(px(6.0))
+                    .rounded(px(4.0))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(SurchTheme::bg_surface()))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(
+                        Icon::new(IconName::Folder)
+                            .size_4()
+                            .text_color(SurchTheme::text_muted()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(SurchTheme::text_primary())
+                                    .whitespace_nowrap()
+                                    .child(folder_name),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(SurchTheme::text_muted())
+                                    .whitespace_nowrap()
+                                    .child(display_path),
+                            ),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        let p = path.clone();
+                        this.set_workspace(p, cx);
+                    })),
+            );
+        }
+
+        Some(list)
+    }
+
     pub fn open_folder(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity().clone();
         cx.spawn(async move |_, cx| {
@@ -425,11 +550,7 @@ impl SurchApp {
                         let path = PathBuf::from(&path_str);
                         let _ = cx.update(|cx| {
                             entity.update(cx, |app, cx| {
-                                app.workspace_root = Some(path.clone());
-                                app.search_panel.update(cx, |panel, _cx| {
-                                    panel.set_workspace_root(path);
-                                });
-                                cx.notify();
+                                app.set_workspace(path, cx);
                             });
                         });
                     }
@@ -518,7 +639,8 @@ impl Render for SurchApp {
                                 .text_color(SurchTheme::text_muted())
                                 .mt(px(12.0))
                                 .child("\u{2318}O to open a folder"),
-                        ),
+                        )
+                        .children(self.render_recent_workspaces(cx)),
                 )
                 .into_any_element();
         }
