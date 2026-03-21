@@ -268,16 +268,25 @@ impl SurchApp {
     }
 
     fn refresh_search(&mut self, cx: &mut Context<Self>) {
-        // Re-execute the search with current input values (skip debounce)
-        let input_values = self.search_panel.update(cx, |panel, cx| {
-            let mut vals = HashMap::new();
-            for (id, input) in &panel.inputs {
-                vals.insert(id.clone(), input.read(cx).value().to_string());
-            }
-            vals
-        });
-        self.pending_query = Some(input_values);
-        self.execute_search(cx);
+        // Defer to next frame — clearing results during a click event on the
+        // results list causes GPUI to panic (view tree changes mid-event).
+        let entity = cx.entity().clone();
+        cx.spawn(async move |_, cx| {
+            let _ = cx.update(|cx| {
+                entity.update(cx, |app, cx| {
+                    let input_values = app.search_panel.update(cx, |panel, cx| {
+                        let mut vals = HashMap::new();
+                        for (id, input) in &panel.inputs {
+                            vals.insert(id.clone(), input.read(cx).value().to_string());
+                        }
+                        vals
+                    });
+                    app.pending_query = Some(input_values);
+                    app.execute_search(cx);
+                });
+            });
+        })
+        .detach();
     }
 
     fn close_project(&mut self, cx: &mut Context<Self>) {
