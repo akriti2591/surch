@@ -32,8 +32,8 @@ Fix what's broken. Make the app usable for daily work.
 **Complexity:** M
 **Files:** `search_panel.rs`, `preview_panel.rs`
 
-#### 1.2 Fix Syntax Highlighting Cutoff
-**Status:** Broken — syntax highlighting stops rendering correctly after ~50-100 lines.
+#### 1.2 Fix Syntax Highlighting Cutoff ✅
+**Status:** Fixed — strip `\r` from Windows line endings, handle `highlight_line()` errors gracefully instead of `unwrap_or_default()`. Switched to One Dark theme for better contrast.
 **Problem:** Likely a `syntect` state issue where the highlighter's parse state isn't being carried forward correctly across line boundaries, or the pre-computed highlight spans vector is being truncated.
 **Fix:** Audit `load_file()` in `preview_panel.rs`. Ensure the `HighlightState` is carried forward line-by-line across the entire file, not reset. Verify the `Rc<Vec<Vec<(Hsla, String)>>>` contains entries for all lines, not just the first N.
 **Complexity:** S
@@ -54,8 +54,8 @@ Fix what's broken. Make the app usable for daily work.
 **Complexity:** S
 **Files:** `search_panel.rs`, `app.rs`
 
-#### 1.5 Keyboard Shortcuts
-**Status:** No shortcuts exist.
+#### 1.5 Keyboard Shortcuts ✅
+**Status:** Implemented — Cmd+O, Cmd+W, Cmd+F, Cmd+Q, Alt+C, Alt+W, Alt+R. Uses GPUI `actions!()` macro, `KeyBinding::new()`, `key_context("surch")`, and `on_action(cx.listener())`.
 **Work:** Register via GPUI `actions!()` macro and key bindings:
 
 | Shortcut | Action |
@@ -76,8 +76,8 @@ Fix what's broken. Make the app usable for daily work.
 **Complexity:** M
 **Files:** `app.rs`, `main.rs`, `search_panel.rs`
 
-#### 1.6 Refresh Search Button
-**Status:** Not implemented.
+#### 1.6 Refresh Search Button ✅
+**Status:** Implemented — refresh icon in toolbar, deferred click handler to avoid GPUI crash.
 **UX Behavior:** A refresh icon button (circular arrow) in the search results header toolbar, next to the status text. Clicking it re-executes the current search query with the current input values and toggle states. This is useful when files on disk have changed since the last search (e.g., after a `git pull`, build step, or external edit). The button should be disabled (grayed out) when no search has been run yet or when a search is currently in progress. While re-running, the existing results are cleared and replaced with fresh results.
 **Implementation:**
 - Add a refresh button to the search panel header row (next to "SEARCH" title or in a toolbar row below it).
@@ -86,8 +86,8 @@ Fix what's broken. Make the app usable for daily work.
 **Complexity:** S
 **Files:** `search_panel.rs`, `app.rs`
 
-#### 1.7 Collapse All / Expand All Button
-**Status:** Not implemented. Individual file groups can be collapsed by clicking their headers.
+#### 1.7 Collapse All / Expand All Button ✅
+**Status:** Implemented — toggle button in toolbar, deferred click handler.
 **UX Behavior:** A button in the search results toolbar (double-chevron icon, like `>>` or VS Code's collapse-all icon). Clicking it collapses every file group so only file names and match counts are visible. Clicking again (or a separate expand-all button) expands all groups. This is essential when searching produces hundreds of file groups — users want to scan file names first, then drill into specific files.
 **Implementation:**
 - Add a `collapse_all()` and `expand_all()` method to `SearchPanel` that iterates `file_groups` and sets `collapsed = true/false` on each.
@@ -219,8 +219,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `theme.rs`, `search_panel.rs`, `preview_panel.rs`, `sidebar.rs`, `app.rs`
 
-#### 2.7 Menu Bar
-**Status:** No menu bar.
+#### 2.7 Menu Bar ✅
+**Status:** Implemented — native macOS menu bar with surch/File/Edit/Find menus. FocusHandle on root div ensures menu items are never greyed out.
 **Work:** Native macOS menu bar via GPUI:
 
 | Menu | Items |
@@ -233,30 +233,15 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `main.rs`, `app.rs`
 
-#### 2.8 Close Project
-**Status:** No way to return to welcome screen without quitting.
-**Work:** Set `workspace_root = None`, clear results, reset preview. Wire to menu bar `Cmd+W` and add a close button in the search panel header.
-**Complexity:** S
-**Files:** `app.rs`
+#### 2.8 Close Project ✅
+**Status:** Implemented — X button in search panel header, Cmd+W shortcut, File > Close Project menu item. Saves workspace state before closing. Uses deferred click handler to avoid GPUI crash.
 
-#### 2.9 History / Recently Opened
-**Status:** Not implemented. Welcome screen only shows "Open Folder" button.
-**UX Behavior:** The welcome screen displays a "Recent" section below the Open Folder button, showing the last 10 opened folders/workspaces. Each entry shows:
-- Folder name (bold) — e.g., `my-project`
-- Full path (muted, smaller text) — e.g., `~/Developer/my-project`
-- Last opened timestamp (muted) — e.g., `2 days ago`
+#### 2.9 History / Recently Opened ✅
+**Status:** Implemented. Two-tier persistence:
+- **Global** (`~/.config/surch/config.toml`): Recent workspaces with timestamps (max 10). Displayed on welcome screen with folder icon, name, and `~/`-shortened path. Click to reopen.
+- **Per-workspace** (`~/.config/surch/workspaces/{hash}/state.json`): Search/replace/filter history (max 20), last used search options (case sensitive, whole word, regex). Saved on close, restored on open.
 
-Clicking a recent entry immediately opens that folder (equivalent to Open Folder). A small "x" button on hover removes an entry from the list. A "Clear Recent" link at the bottom clears the entire list.
-
-**Implementation:**
-- Store recent folders in `~/.config/surch/recent.json` (array of `{ path, last_opened }`).
-- On folder open, prepend to the list (dedup by path, cap at 20 entries).
-- Read the list on app launch and render in the welcome screen.
-- Use the existing `surch-core/src/config.rs` infrastructure for file I/O.
-- Validate paths on render — gray out entries whose paths no longer exist on disk.
-**Complexity:** M
-**Dependencies:** Close Project (2.8) — returning to welcome screen should show updated recents
-**Files:** `surch-core/src/config.rs`, `app.rs`
+**TODO:** Add "x" button to remove individual entries, "Clear Recent" link, relative timestamps ("2 days ago"), validate paths exist on disk.
 
 #### 2.10 Sidebar Icons
 **Status:** Shows first letter of channel name.
@@ -364,7 +349,7 @@ Open multiple folders simultaneously. Results are grouped by workspace root. Eac
 **Complexity:** L
 
 #### 4.3 Search History
-Dropdown on the find input showing the last 20 search queries. Press `Down` when the find input is focused and empty to show history. History persists across sessions (stored in config).
+Dropdown on the find input showing the last 20 search queries. Press `Down` when the find input is focused and empty to show history. History persists across sessions (stored in per-workspace `state.json` — infrastructure already in place via `WorkspaceState.search_history`).
 **Complexity:** M
 
 #### 4.4 New Channels
