@@ -56,6 +56,7 @@ pub struct SearchPanel {
     case_sensitive: bool,
     whole_word: bool,
     is_regex: bool,
+    preserve_case: bool,
     all_collapsed: bool,
     search_completed: bool,
     pub on_query_changed:
@@ -106,6 +107,7 @@ impl SearchPanel {
             case_sensitive: false,
             whole_word: false,
             is_regex: false,
+            preserve_case: false,
             all_collapsed: false,
             search_completed: false,
             on_query_changed: None,
@@ -120,8 +122,8 @@ impl SearchPanel {
         self.workspace_root = Some(root);
     }
 
-    pub fn search_options(&self) -> (bool, bool, bool) {
-        (self.case_sensitive, self.whole_word, self.is_regex)
+    pub fn search_options(&self) -> (bool, bool, bool, bool) {
+        (self.case_sensitive, self.whole_word, self.is_regex, self.preserve_case)
     }
 
     pub fn focus_find(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -151,10 +153,11 @@ impl SearchPanel {
     }
 
     /// Restore search options from persisted workspace state.
-    pub fn restore_options(&mut self, case_sensitive: bool, whole_word: bool, is_regex: bool) {
+    pub fn restore_options(&mut self, case_sensitive: bool, whole_word: bool, is_regex: bool, preserve_case: bool) {
         self.case_sensitive = case_sensitive;
         self.whole_word = whole_word;
         self.is_regex = is_regex;
+        self.preserve_case = preserve_case;
     }
 
     /// Returns true if any input field currently has focus.
@@ -519,6 +522,13 @@ impl SearchPanel {
                             .flex_1()
                             .child(gpui_component::input::Input::new(input).w_full()),
                     )
+                    .child(self.render_toggle_button(
+                        "toggle-preserve-case",
+                        "AB",
+                        self.preserve_case,
+                        cx,
+                        |s| &mut s.preserve_case,
+                    ))
                     .child(
                         div()
                             .id("btn-replace-all")

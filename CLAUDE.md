@@ -119,15 +119,17 @@ These are hard-won lessons. Read before touching GPUI code:
 
 13. **Menu bar actions need FocusHandle.** GPUI greys out menu items when `is_action_available()` can't find a handler in the focus dispatch path. The root view needs a `FocusHandle` with `track_focus()` on its root div, and ALL action handlers must be registered via `.on_action()` on that div. Register handlers on BOTH the welcome screen and main view divs, even if some are no-ops.
 
-14. **Keyboard shortcuts via `actions!()` + `KeyBinding::new()`.** Define actions with `actions!(surch, [OpenFolder, ...])`, bind keys with `cx.bind_keys([KeyBinding::new("cmd-o", OpenFolder, Some("surch"))])`, add `key_context("surch")` to root divs, and handle with `.on_action(cx.listener(Self::handle_open_folder))`. **Never bind bare navigation keys** (`up`, `down`, `left`, `right`, `tab`) to actions — GPUI intercepts them before Input components can process them, breaking text cursor movement and history navigation. Always use modifier keys (e.g., `cmd-down` instead of `down`).
+14. **Keyboard shortcuts via `actions!()` + `KeyBinding::new()`.** Define actions with `actions!(surch, [OpenFolder, ...])`, bind keys with `cx.bind_keys([KeyBinding::new("cmd-o", OpenFolder, Some("surch"))])`, add `key_context("surch")` to root divs, and handle with `.on_action(cx.listener(Self::handle_open_folder))`. **Never bind bare navigation keys** (`up`, `down`, `left`, `right`, `tab`) to custom app actions — GPUI intercepts them before Input components can process them. Always use modifier keys (e.g., `cmd-down` instead of `down`) for custom shortcuts.
+
+15. **Arrow keys in single-line Inputs crash GPUI.** gpui-component registers `"up" -> MoveUp` and `"down" -> MoveDown` key bindings in the "Input" context, but single-line Input components do NOT register `.on_action()` handlers for MoveUp/MoveDown (only multi-line inputs do). When an unhandled action propagates through the tree with no handler, GPUI panics inside `do_command_by_selector` (an `extern "C"` macOS callback), causing `panic_cannot_unwind`. **Fix:** Register no-op handlers for `gpui_component::input::{MoveUp, MoveDown}` on the root div via `.on_action()`. This catches the propagated actions and prevents the crash. These imports are aliased as `InputMoveUp`/`InputMoveDown` to avoid naming conflicts.
 
 ## Syntect Gotchas
 
-15. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.
+16. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.
 
-16. **Strip `\r` before highlighting.** Windows line endings (`\r\n`) cause `highlight_line()` errors that silently break parser state. Always `trim_end_matches('\r')` before appending `\n` for syntect. On error, push the line as plain text but don't reset the highlighter — let it try to recover.
+17. **Strip `\r` before highlighting.** Windows line endings (`\r\n`) cause `highlight_line()` errors that silently break parser state. Always `trim_end_matches('\r')` before appending `\n` for syntect. On error, push the line as plain text but don't reset the highlighter — let it try to recover.
 
-17. **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
+18. **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
 
 ## Future: Tree-sitter for Syntax Highlighting
 

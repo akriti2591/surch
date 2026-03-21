@@ -5,6 +5,7 @@ use crate::theme::SurchTheme;
 use crossbeam_channel::{Receiver, TryRecvError};
 use gpui::*;
 use gpui::prelude::FluentBuilder;
+use gpui_component::input::{MoveUp as InputMoveUp, MoveDown as InputMoveDown};
 use gpui_component::{Icon, IconName};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -203,7 +204,7 @@ impl SurchApp {
             panel.set_searching(true);
         });
 
-        let (case_sensitive, whole_word, is_regex) =
+        let (case_sensitive, whole_word, is_regex, preserve_case) =
             self.search_panel.read(cx).search_options();
 
         let query = ChannelQuery {
@@ -212,7 +213,7 @@ impl SurchApp {
             is_regex,
             case_sensitive,
             whole_word,
-            ..Default::default()
+            preserve_case,
         };
 
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -365,7 +366,7 @@ impl SurchApp {
             return;
         }
 
-        let (case_sensitive, whole_word, is_regex) =
+        let (case_sensitive, whole_word, is_regex, preserve_case) =
             self.search_panel.read(cx).search_options();
 
         let query = ChannelQuery {
@@ -374,7 +375,7 @@ impl SurchApp {
             is_regex,
             case_sensitive,
             whole_word,
-            ..Default::default()
+            preserve_case,
         };
 
         // Cancel any in-progress search before replacing
@@ -519,8 +520,16 @@ impl SurchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.search_panel.update(cx, |panel, cx| {
-            panel.select_next(window, cx);
+        // Defer to next frame — arrow keys route through macOS's inputContext →
+        // do_command_by_selector (an extern "C" callback). Any state mutation
+        // that triggers re-render inside that callback causes panic_cannot_unwind.
+        let entity = cx.entity().clone();
+        window.on_next_frame(move |window, cx| {
+            entity.update(cx, |app, cx| {
+                app.search_panel.update(cx, |panel, cx| {
+                    panel.select_next(window, cx);
+                });
+            });
         });
     }
 
@@ -530,8 +539,14 @@ impl SurchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.search_panel.update(cx, |panel, cx| {
-            panel.select_previous(window, cx);
+        // Defer to next frame — same reason as handle_select_next.
+        let entity = cx.entity().clone();
+        window.on_next_frame(move |window, cx| {
+            entity.update(cx, |app, cx| {
+                app.search_panel.update(cx, |panel, cx| {
+                    panel.select_previous(window, cx);
+                });
+            });
         });
     }
 
@@ -658,7 +673,7 @@ impl SurchApp {
         self.search_panel.update(cx, |panel, _cx| {
             panel.set_workspace_root(path);
             // Restore last search options from workspace state
-            panel.restore_options(ws_state.case_sensitive, ws_state.whole_word, ws_state.is_regex);
+            panel.restore_options(ws_state.case_sensitive, ws_state.whole_word, ws_state.is_regex, false);
         });
         cx.notify();
     }
@@ -666,7 +681,7 @@ impl SurchApp {
     /// Save current workspace state before closing.
     fn save_workspace_state(&self, cx: &mut Context<Self>) {
         if let Some(ref workspace_path) = self.workspace_root {
-            let (case_sensitive, whole_word, is_regex) =
+            let (case_sensitive, whole_word, is_regex, _preserve_case) =
                 self.search_panel.read(cx).search_options();
             let mut ws_state = WorkspaceState::load(workspace_path);
             ws_state.case_sensitive = case_sensitive;
@@ -857,6 +872,12 @@ impl SurchApp {
             .on_action(cx.listener(Self::handle_zoom_out))
             .on_action(cx.listener(Self::handle_zoom_reset))
             .on_action(cx.listener(Self::handle_go_to_line))
+            // Catch unhandled MoveUp/MoveDown from single-line Input components.
+            // Without these, arrow keys in single-line inputs cause a panic in
+            // GPUI's do_command_by_selector (macOS text input callback) because
+            // the action propagates with no handler and panics inside extern "C".
+            .on_action(cx.listener(|_this, _: &InputMoveUp, _window, _cx| {}))
+            .on_action(cx.listener(|_this, _: &InputMoveDown, _window, _cx| {}))
     }
 }
 

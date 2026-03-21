@@ -30,6 +30,8 @@ fn main() {
             KeyBinding::new("alt-r", ToggleRegex, Some("surch")),
             KeyBinding::new("cmd-down", SelectNextResult, Some("surch")),
             KeyBinding::new("cmd-up", SelectPreviousResult, Some("surch")),
+            KeyBinding::new("down", SelectNextResult, Some("surch")),
+            KeyBinding::new("up", SelectPreviousResult, Some("surch")),
             KeyBinding::new("cmd-shift-enter", OpenInEditor, Some("surch")),
             KeyBinding::new("escape", ClearSearch, Some("surch")),
             KeyBinding::new("cmd-=", ZoomIn, Some("surch")),
