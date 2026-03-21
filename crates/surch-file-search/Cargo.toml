@@ -13,3 +13,6 @@ grep-searcher = "0.1"
 ignore = "0.4"
 num_cpus = "1"
 regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
