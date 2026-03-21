@@ -264,7 +264,21 @@ Clicking a recent entry immediately opens that folder (equivalent to Open Folder
 **Complexity:** S
 **Files:** `sidebar.rs`, `surch-file-search/src/lib.rs`
 
-#### 2.11 Replace Preview (Inline Diff)
+#### 2.11 Fuzzy Finding (Cross-Channel)
+**Status:** Not implemented. All search is currently exact/regex matching.
+**UX Behavior:** A toggleable "Fuzzy" mode (button in the search toolbar, next to Case/Whole Word/Regex toggles). When enabled, the search query is matched fuzzily — characters must appear in order but not contiguously (e.g., `srchpnl` matches `search_panel`). Matched characters are highlighted individually in the result. Fuzzy mode is mutually exclusive with Regex mode (regex requires exact pattern syntax).
+**Why cross-channel:** Fuzzy finding is useful for every channel — file content, filesystem names, git messages, pod names, etc. It should live in `surch-core` as a shared capability, not be reimplemented per channel.
+**Implementation:**
+- Add a `fuzzy: bool` field to `ChannelQuery` in `surch-core/src/channel.rs`.
+- Implement a `fuzzy_match(query: &str, text: &str) -> Option<(f64, Vec<usize>)>` function in `surch-core` that returns a relevance score and matched character indices. Use the `nucleo` or `fuzzy-matcher` crate (both are battle-tested — nucleo is what Helix uses, fuzzy-matcher is what fzf-rs uses).
+- Each channel's `search()` can call into this shared fuzzy matcher when `query.fuzzy` is true.
+- Results should be ranked by fuzzy score (best match first), not file order.
+- Toggle button in the search panel toolbar: `Fz` or a tilde `~` icon.
+- Keyboard shortcut: `Alt+Z` to toggle fuzzy mode.
+**Complexity:** M
+**Files:** `surch-core/src/channel.rs`, new `surch-core/src/fuzzy.rs`, `search_panel.rs`, `surch-file-search/src/engine.rs`
+
+#### 2.12 Replace Preview (Inline Diff)
 **Status:** Not implemented.
 **UX Behavior:** When a replacement string is entered, each match line in the results list shows a preview of the replacement. The original matched text is shown with strikethrough and a red-tinted background, and the replacement text is shown with a green-tinted background immediately after it. This gives users confidence about what will change before they click Replace All.
 **Implementation:**
@@ -355,6 +369,7 @@ Dropdown on the find input showing the last 20 search queries. Press `Down` when
 
 #### 4.4 New Channels
 The channel architecture is designed for extensibility. Future channels:
+- **Filesystem Search** — search files and folders by name (fuzzy match, like Cmd+P in VS Code but as a full channel). Results show matching file/folder paths. Preview shows file content for text files, directory listing for folders, metadata (size, modified date) for all. Replace = rename files/folders (e.g., find `Button` → rename to `PrimaryButton`). Actions: Open, Rename, Delete, Reveal in Finder, Copy Path. Uses the same `ignore` crate for .gitignore-aware traversal.
 - **Git Search** — search through git log messages, diffs, blame
 - **Symbol Search** — search for function/class/type definitions using tree-sitter
 - **Kubernetes** — search across pod logs, config maps, secrets, events
@@ -427,7 +442,8 @@ Phase 2 — Replace workflow + polish (Beta):
   Replace Preview (inline diff)                     (M) — Week 6
   Panel resizing (draggable divider)                (M) — Week 6
   Search result text truncation                     (S) — Week 6
-  View as Tree toggle                               (L) — Week 6-7
+  Fuzzy finding (cross-channel)                      (M) — Week 6-7
+  View as Tree toggle                               (L) — Week 7
   History / Recently Opened                         (M) — Week 7
   Close Project                                     (S) — Week 7
   UI polish pass                                    (M) — Week 8
