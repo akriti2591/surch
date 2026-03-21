@@ -186,7 +186,29 @@ In tree view, directory nodes are collapsible. Collapsing a directory hides all 
 **Dependencies:** Collapse All (1.7) — shares collapse/expand UX patterns
 **Files:** `search_panel.rs` (or new `tree_view.rs` component)
 
-#### 2.4 UI Polish Pass
+#### 2.4 Panel Resizing (Draggable Divider)
+**Status:** Not implemented. Search panel is fixed at 340px, preview takes remaining space.
+**UX Behavior:** A draggable vertical divider between the search results panel and preview panel. Users can drag left/right to resize both panels. The cursor changes to a resize cursor on hover. Minimum widths should be enforced (e.g., 200px for search, 300px for preview) to prevent either panel from collapsing completely.
+**Implementation:**
+- Replace the fixed `w(px(340.0))` on the search panel with a dynamic width stored in `SurchApp` state.
+- Render a 4-6px invisible drag handle div between the two panels. On mousedown + drag, update the search panel width.
+- Persist the user's preferred width in config (`~/.config/surch/`).
+**Complexity:** M
+**Files:** `app.rs`, `search_panel.rs`, `surch-core/src/config.rs`
+
+#### 2.5 Search Result Text Truncation
+**Status:** Not implemented. Long lines are clipped at the panel edge, often showing only indentation whitespace.
+**UX Behavior:** Search result lines in the results list should:
+- **Left-trim leading whitespace** to show the relevant content, not deep indentation that wastes horizontal space.
+- **Truncate with ellipsis** (`...`) when the line exceeds the panel width, rather than hard-clipping mid-character.
+- Cursor/VS Code does this — result lines always show the meaningful part of the match, regardless of indentation depth.
+**Implementation:**
+- In the result row render, trim leading whitespace from `line_content` before display. Adjust `match_ranges` byte offsets accordingly.
+- Apply `.text_ellipsis()` or equivalent on the line container to truncate with `...`.
+**Complexity:** S
+**Files:** `search_panel.rs`
+
+#### 2.6 UI Polish Pass
 Rework theme colors, spacing, typography, hover states. Key changes:
 - **Hover states:** Ensure all interactive rows have `.hover()` styling.
 - **Spacing:** Consistent padding and margins throughout.
@@ -197,7 +219,7 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `theme.rs`, `search_panel.rs`, `preview_panel.rs`, `sidebar.rs`, `app.rs`
 
-#### 2.5 Menu Bar
+#### 2.7 Menu Bar
 **Status:** No menu bar.
 **Work:** Native macOS menu bar via GPUI:
 
@@ -211,13 +233,13 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `main.rs`, `app.rs`
 
-#### 2.6 Close Project
+#### 2.8 Close Project
 **Status:** No way to return to welcome screen without quitting.
 **Work:** Set `workspace_root = None`, clear results, reset preview. Wire to menu bar `Cmd+W` and add a close button in the search panel header.
 **Complexity:** S
 **Files:** `app.rs`
 
-#### 2.7 History / Recently Opened
+#### 2.9 History / Recently Opened
 **Status:** Not implemented. Welcome screen only shows "Open Folder" button.
 **UX Behavior:** The welcome screen displays a "Recent" section below the Open Folder button, showing the last 10 opened folders/workspaces. Each entry shows:
 - Folder name (bold) — e.g., `my-project`
@@ -233,16 +255,16 @@ Clicking a recent entry immediately opens that folder (equivalent to Open Folder
 - Use the existing `surch-core/src/config.rs` infrastructure for file I/O.
 - Validate paths on render — gray out entries whose paths no longer exist on disk.
 **Complexity:** M
-**Dependencies:** Close Project (2.6) — returning to welcome screen should show updated recents
+**Dependencies:** Close Project (2.8) — returning to welcome screen should show updated recents
 **Files:** `surch-core/src/config.rs`, `app.rs`
 
-#### 2.8 Sidebar Icons
+#### 2.10 Sidebar Icons
 **Status:** Shows first letter of channel name.
 **Work:** Use proper icons for channel sidebar. `ChannelMetadata.icon` field exists but is ignored. Use GPUI `IconName` variants (e.g., `IconName::Search` for file search).
 **Complexity:** S
 **Files:** `sidebar.rs`, `surch-file-search/src/lib.rs`
 
-#### 2.9 Replace Preview (Inline Diff)
+#### 2.11 Replace Preview (Inline Diff)
 **Status:** Not implemented.
 **UX Behavior:** When a replacement string is entered, each match line in the results list shows a preview of the replacement. The original matched text is shown with strikethrough and a red-tinted background, and the replacement text is shown with a green-tinted background immediately after it. This gives users confidence about what will change before they click Replace All.
 **Implementation:**
@@ -403,6 +425,8 @@ Phase 2 — Replace workflow + polish (Beta):
   Replace All button                                (L) — Week 4-5
   Replace: Preserve Case                            (M) — Week 5
   Replace Preview (inline diff)                     (M) — Week 6
+  Panel resizing (draggable divider)                (M) — Week 6
+  Search result text truncation                     (S) — Week 6
   View as Tree toggle                               (L) — Week 6-7
   History / Recently Opened                         (M) — Week 7
   Close Project                                     (S) — Week 7

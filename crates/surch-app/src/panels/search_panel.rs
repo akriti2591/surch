@@ -215,7 +215,7 @@ impl SearchPanel {
             .justify_center()
             .cursor_pointer()
             .text_size(px(11.0))
-            .font_family("SF Mono")
+            .font_family("Menlo")
             .child(label.to_string());
         if active {
             btn = btn
@@ -239,7 +239,7 @@ impl SearchPanel {
             .overflow_hidden()
             .whitespace_nowrap()
             .text_size(px(12.0))
-            .font_family("SF Mono");
+            .font_family("Menlo");
 
         if ranges.is_empty() {
             return container
@@ -529,7 +529,7 @@ impl Render for SearchPanel {
                                     .child(
                                         div()
                                             .text_size(px(11.0))
-                                            .font_family("SF Mono")
+                                            .font_family("Menlo")
                                             .text_color(SurchTheme::text_secondary())
                                             .min_w(px(36.0))
                                             .flex()
