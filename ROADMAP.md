@@ -1,6 +1,6 @@
 # Surch Roadmap
 
-> Last updated: 2026-03-21
+> Last updated: 2026-03-22
 
 ## Vision
 
@@ -32,12 +32,8 @@ Fix what's broken. Make the app usable for daily work.
 **Complexity:** M
 **Files:** `search_panel.rs`, `preview_panel.rs`
 
-#### 1.2 Fix Syntax Highlighting Cutoff ✅
-**Status:** Fixed — strip `\r` from Windows line endings, handle `highlight_line()` errors gracefully instead of `unwrap_or_default()`. Switched to One Dark theme for better contrast.
-**Problem:** Likely a `syntect` state issue where the highlighter's parse state isn't being carried forward correctly across line boundaries, or the pre-computed highlight spans vector is being truncated.
-**Fix:** Audit `load_file()` in `preview_panel.rs`. Ensure the `HighlightState` is carried forward line-by-line across the entire file, not reset. Verify the `Rc<Vec<Vec<(Hsla, String)>>>` contains entries for all lines, not just the first N.
-**Complexity:** S
-**Files:** `preview_panel.rs`
+#### 1.2 Fix Syntax Highlighting ✅
+**Status:** Fixed — replaced syntect with gpui-component's CodeEditor (tree-sitter based). One Dark theme configured via `HighlightThemeStyle`. TSX highlighting fixed by re-registering with full TypeScript query.
 
 #### 1.3 Fix Color Accessibility
 **Status:** Broken — some text is hard to read against backgrounds.
@@ -147,44 +143,8 @@ Only three case patterns are detected and preserved: all-lowercase, all-uppercas
 **Dependencies:** Replace All (2.1)
 **Files:** `surch-core/src/channel.rs` (or new `replace.rs`), `search_panel.rs`
 
-#### 2.3 View as Tree Toggle
-**Status:** Not implemented. Results are displayed as a flat list of file groups.
-**UX Behavior:** A toggle button in the search results toolbar (tree icon vs. list icon). Two view modes:
-
-**Flat List (default, current behavior):**
-```
-src/components/Button.tsx  (3)
-  12: <Button onClick={handleClick}>
-  45: export const Button = ...
-  67: type ButtonProps = ...
-src/utils/helpers.ts  (1)
-  5: function helper() {
-```
-
-**Tree View:**
-```
-v src/
-  v components/
-    v Button.tsx  (3)
-      12: <Button onClick={handleClick}>
-      45: export const Button = ...
-      67: type ButtonProps = ...
-  v utils/
-    v helpers.ts  (1)
-      5: function helper() {
-```
-
-In tree view, directory nodes are collapsible. Collapsing a directory hides all files (and their matches) underneath it. Each directory node shows an aggregate match count. Files still expand/collapse to show/hide their individual match lines. The tree is built from the `relative_path` of each file group by splitting on `/` and constructing a trie.
-
-**Implementation:**
-- Add a `ViewMode` enum (`Flat`, `Tree`) to `SearchPanel`.
-- Build a `TreeNode` structure (enum of `Directory { name, children, collapsed }` | `FileGroup { ... }`) from the flat `file_groups` list.
-- Render the tree using indentation levels (each depth level adds ~16px left padding).
-- Toggle button swaps between rendering `file_groups` directly (flat) vs. the computed tree.
-- Tree structure should be recomputed when results change, cached otherwise.
-**Complexity:** L
-**Dependencies:** Collapse All (1.7) — shares collapse/expand UX patterns
-**Files:** `search_panel.rs` (or new `tree_view.rs` component)
+#### 2.3 View as Tree Toggle ✅
+**Status:** Implemented — `ToggleViewMode` action with `Cmd+Shift+T` shortcut. Flat list and tree view modes using `path_trie` module in `surch-core`. Tree view shows collapsible directory nodes with aggregate match counts. View > Toggle Tree View menu item.
 
 #### 2.4 Panel Resizing (Draggable Divider) ✅
 **Status:** Implemented — draggable 4px divider between search and preview panels with `CursorStyle::ResizeLeftRight`. Min 200px, max 600px. Accent-colored on hover/drag.
@@ -291,14 +251,14 @@ This gives one-click access to the preferred editor while still allowing switchi
 **Dependencies:** Replace All (2.1)
 **Files:** `search_panel.rs`
 
-#### 2.13 Monokai Pro Theme + Theming System
-**Status:** Not implemented. Currently hardcoded to One Dark-inspired colors in `theme.rs`.
+#### 2.13 Theming System + Monokai Pro Theme
+**Status:** Not implemented. Currently hardcoded to One Dark-inspired colors in `theme.rs` (app UI) and `HighlightThemeStyle` (syntax highlighting via tree-sitter).
 **UX Behavior:** Surch should support multiple color themes, switchable at runtime (like Zed's theme system). The default theme should be **Monokai Pro** — a professional, high-contrast dark theme widely regarded as best-in-class for code readability.
 **Implementation:**
 - Define a `Theme` trait or struct in `surch-core` that contains all color tokens (bg_primary, text_primary, accent, match_bg, etc.).
 - Create theme files as structured data (TOML, JSON, or Rust structs). Start with two themes: **Monokai Pro** (default) and **One Dark** (current).
 - `SurchTheme` methods become dynamic, reading from the active theme instead of returning hardcoded values.
-- Each theme also needs a corresponding `syntect` `.tmTheme` file for syntax highlighting colors. Monokai Pro uses its own distinct palette for syntax tokens.
+- Each theme needs a corresponding `HighlightThemeStyle` JSON definition for tree-sitter syntax highlighting colors (set via `Theme::global_mut(cx).highlight_theme`).
 - Theme switching should be instant — update the active theme reference and call `cx.notify()` to re-render everything.
 - Store the user's theme preference in `config.toml`.
 
@@ -318,7 +278,7 @@ This gives one-click access to the preferred editor while still allowing switchi
 
 **Complexity:** L
 **Dependencies:** Settings UI (4.1) for theme picker, or standalone menu item
-**Files:** `theme.rs` (refactor to trait/struct), new `themes/` module, `config.rs`, `preview_panel.rs` (syntect theme)
+**Files:** `theme.rs` (refactor to trait/struct), new `themes/` module, `config.rs`, `main.rs` (highlight theme)
 
 #### 2.14 Custom Themed Title Bar ✅
 **Status:** Implemented — transparent title bar with custom-drawn title div matching the app theme. Uses `appears_transparent: true` + `traffic_light_position` for macOS traffic lights. Shows workspace name when a folder is open.
@@ -336,26 +296,10 @@ This gives one-click access to the preferred editor while still allowing switchi
 **Files:** `main.rs` (TitlebarOptions), `app.rs` (render custom title bar div)
 
 #### 2.15 Preview Pane Zoom (Font Size +/-) ✅
-**Status:** Implemented — Cmd+=/Cmd+-/Cmd+0 for zoom in/out/reset. Font size range 8-32px in 2px steps. View menu with Zoom In/Out/Reset items.
-**UX Behavior:** `Cmd+=` (or `Cmd++`) increases the preview pane font size. `Cmd+-` decreases it. `Cmd+0` resets to default (14px). The zoom level should be shown briefly as an overlay ("120%") and then fade. Font size range: 8px – 32px. Zoom level persists per session (optionally per workspace in `state.json`).
-**Implementation:**
-- Add `preview_font_size: f32` to `SurchApp` state (default 14.0).
-- Add `ZoomIn`, `ZoomOut`, `ZoomReset` actions with keybindings.
-- Pass font size to `PreviewPanel` — it already uses a font size in its render method.
-- Store in workspace state or global config.
-**Complexity:** S
-**Files:** `app.rs`, `preview_panel.rs`, `main.rs` (keybindings)
+**Status:** Implemented — Cmd+=/Cmd+-/Cmd+0 for zoom in/out/reset. Font size range 8-32px in 2px steps. View menu items. Uses `refine_style()` on the Input component to override both `text_size` and `line_height` (1.5x font size) so both scale together with zoom.
 
-#### 2.16 Word Wrap Toggle
-**Status:** Not implemented. Preview pane lines extend beyond visible width.
-**UX Behavior:** A toggle in the menu bar (View > Word Wrap) and/or toolbar that wraps long lines in the preview pane to the panel width. When word wrap is on, lines that exceed the panel width wrap to the next visual line (soft wrap). Line numbers still show the original line number (no duplicate line numbers for wrapped lines). Default: off (matching VS Code's default).
-**Implementation:**
-- GPUI's text rendering supports `.whitespace_normal()` for wrapping. Toggle between `.whitespace_nowrap()` (current) and `.whitespace_normal()` on the code line divs in `preview_panel.rs`.
-- Note: `uniform_list` assumes uniform item heights. With word wrap, line heights vary. This may require switching to `list` (variable height) or computing wrapped line heights.
-- Store preference in config.
-**Complexity:** M
-**Dependencies:** May require variable-height list instead of `uniform_list`
-**Files:** `preview_panel.rs`, `app.rs` (menu item + action)
+#### 2.16 Word Wrap Toggle ✅
+**Status:** Implemented — `ToggleWordWrap` action with `Alt+Z` shortcut (matches VS Code). View > Word Wrap menu item. Uses `InputState::set_soft_wrap()` on the CodeEditor.
 
 #### 2.17 Go to Line ✅
 **Status:** Implemented — Cmd+G opens floating input overlay on preview pane. Type line number, press Enter to jump. Go menu in menu bar.
@@ -367,25 +311,14 @@ This gives one-click access to the preferred editor while still allowing switchi
 **Complexity:** S
 **Files:** `preview_panel.rs`, `app.rs`, `main.rs`
 
-#### 2.18 Find in Preview (Cmd+F in Preview Pane)
-**Status:** Not implemented.
-**UX Behavior:** When the preview pane is focused, `Cmd+F` opens a find bar at the top of the preview pane (distinct from the main search panel). Features:
-- Incremental search — highlights all matches in the preview as user types
-- `Enter` / `Shift+Enter` to jump between matches
-- Match count indicator (e.g., "3 of 12")
-- `Escape` to dismiss
-- Case sensitive / regex toggles (mini versions)
+#### 2.18 Find in Preview (Cmd+F in Preview Pane) ✅
+**Status:** Implemented — provided by gpui-component's CodeEditor built-in search (`.searchable(true)`). Supports incremental highlighting, match count, Enter/Shift+Enter to cycle, Escape to dismiss, case/regex toggles.
+**Known gap:** Cycling through find results doesn't center them in the editor viewport — matches near edges can be hard to see.
 
-This is essential for reviewing search results — users frequently need to find specific text within a file they're previewing.
-**Implementation:**
-- Add find state to `PreviewPanel`: `find_query`, `find_matches: Vec<usize>` (line indices), `current_match_index`.
-- Reuse the same highlight rendering logic from search results.
-- Find bar is a small floating div with an input, match count, and up/down buttons.
-**Complexity:** M
-**Dependencies:** None
-**Files:** `preview_panel.rs`
+#### 2.19 Editor Configuration (View Menu) ✅
+**Status:** Implemented — View menu exposes Word Wrap (`Alt+Z`), Line Numbers, and Indent Guides toggles. Each calls the corresponding `InputState` method (`set_soft_wrap`, `set_line_number`, `set_indent_guides`) on the CodeEditor. Zoom (Cmd+=/Cmd+-/Cmd+0) scales both font size and line height via `refine_style()`.
 
-#### 2.19 Design System & Consistency
+#### 2.20 Design System & Consistency
 **Status:** No formal design system. Colors, spacing, typography, and component patterns are ad-hoc.
 **Research needed:** Audit the current UI against best practices from Zed, VS Code, and Figma's design systems. Establish:
 - **Spacing scale** — consistent 4px grid (4, 8, 12, 16, 24, 32, 48px)
@@ -407,18 +340,17 @@ Ship it. Testing, packaging, branding.
 
 ### P1 Features
 
-#### 3.1 Test Suite
-Unit tests for:
-- Search engine: literal, regex, case sensitivity, whole word, glob include/exclude patterns.
-- Replace logic: basic replacement, preserve case transformation, byte offset correctness.
-- Config: round-trip serialization of recent folders, settings.
-- Editor detection: mock `/Applications` scanning.
+#### 3.1 Test Suite ✅
+**Status:** 130 tests, 84.6% coverage across `surch-core` (79 tests) and `surch-file-search` (51 tests). Covers:
+- Search engine: literal, regex, case sensitivity, whole word, glob include/exclude, cancellation, .gitignore, unicode
+- Replace logic: basic, case-insensitive, preserve case, multi-file, globs, trailing newline preservation
+- Config: round-trip serialization, workspace state persistence, recent workspaces, history management
+- Channel trait: metadata, input fields, actions, query fields, result entries, search events
+- Path trie: tree building, nesting, match counts
+- Registry: registration, active switching
+- Editor detection: always includes Reveal in Finder, Finder is last
 
-Integration tests:
-- End-to-end search flow with a test fixture directory.
-- Replace all with verification of file contents.
-**Complexity:** L
-**Files:** `surch-file-search/src/engine.rs` (tests mod), `surch-core/src/` (tests)
+**Remaining gaps:** Editor auto-discovery internals (depends on installed apps, ~64.7% coverage on `lib.rs`). `surch-app` has no tests (GPUI requires GPU context).
 
 #### 3.2 App Logo & Icon
 **Status:** No app icon.
@@ -498,90 +430,74 @@ The channel architecture is designed for extensibility. Future channels:
 Each channel implements the `Channel` trait and gets its own sidebar icon, input fields, and result format.
 **Complexity:** XL (per channel)
 
-#### 4.5 Tree-sitter Syntax Highlighting
-**Status:** Using syntect (regex-based, TextMate grammars). Works but line-by-line and can drift on complex files.
-**Why:** Tree-sitter parses into a full AST and supports incremental re-parsing — only re-highlights changed regions. This is what Zed, Neovim, Helix, and Atom all use. Benefits:
-- More accurate highlighting (understands language structure, not just regex patterns)
-- Incremental parsing (only re-parse changed regions — matters for replace preview)
-- Foundation for future Symbol Search channel (tree-sitter gives you function/class/type nodes for free)
-- C library with mature Rust bindings (`tree-sitter` crate)
-**Complexity:** L
-**Dependencies:** None — can be swapped in behind the same `Rc<Vec<Vec<(Hsla, String)>>>` interface
-**Files:** `preview_panel.rs`, new `highlighting.rs` module
+#### 4.5 Tree-sitter Syntax Highlighting ✅ (partial)
+**Status:** Implemented — preview panel uses gpui-component's CodeEditor which provides tree-sitter syntax highlighting via `InputState::code_editor()`. One Dark highlight theme configured via `HighlightThemeStyle`. TSX highlighting fixed by re-registering with full TypeScript highlights query.
+**Remaining:** More file types need tree-sitter grammar support. Currently supports ~30 extensions via `language_for_path()` in `preview_panel.rs`, but some languages may have incomplete or missing highlights queries in gpui-component. Foundation exists for Symbol Search channel (tree-sitter AST).
 
 #### 4.6 File Search: Context Lines
 Show N lines of context above/below each match (like `grep -C`). Toggle in settings or via a button. Context lines are rendered in a muted style, non-clickable.
 **Complexity:** M
 
 #### 4.7 Find and Replace in Single File
-When the preview panel is showing a file, allow `Cmd+F` to search within that file (like VS Code's in-file find). This is a lighter-weight search scoped to the previewed file.
-**Complexity:** L
+**Status:** Find is done (CodeEditor built-in Cmd+F). Replace within a single file is not yet implemented — the CodeEditor runs in read-only mode (`.disabled(true)`).
+**Complexity:** M
 
-#### 4.8 Text Selection, Copy, and Find-in-Preview
-**Status:** Not implemented. Preview pane text is not selectable.
-**UX Behavior:** Users should be able to:
-- **Select text** in the preview pane by clicking and dragging, or `Cmd+A` to select all visible content.
-- **Copy selected text** via `Cmd+C` or right-click context menu. Copies plain text (no highlighting markup).
-- **Find in preview** via `Cmd+F` when the preview pane is focused — opens a small find bar at the top of the preview pane (distinct from the main search panel). Supports:
-  - Incremental highlight of all matches in the preview.
-  - `Enter` / `Shift+Enter` to jump between matches.
-  - Match count indicator (e.g., "3 of 12").
-  - `Escape` to dismiss the find bar.
-
-This is essential for reviewing search results — users frequently need to copy code snippets from the preview or search within a large file they're previewing.
-**Implementation:**
-- GPUI text selection may require a selectable text element or a custom selection model tracking start/end character offsets mapped to the `uniform_list` row indices.
-- Find-in-preview reuses the same highlight rendering as the main search but scoped to the loaded file's content.
-- Store find state (`find_query`, `matches`, `current_match_index`) on `PreviewPanel`.
-**Complexity:** L
-**Files:** `preview_panel.rs`
+#### 4.8 Text Selection, Copy, and Find-in-Preview ✅
+**Status:** Implemented — all provided by gpui-component's CodeEditor in read-only mode (`.disabled(true)`). Text selection via click/drag, Cmd+A select all, Cmd+C copy, Cmd+F find-in-preview with incremental highlighting, match count, and navigation.
 
 ---
 
 ## Implementation Order
 
 ```
-Phase 1 — Fix what's broken (Alpha):
-  P0 Bug: Fix scroll performance                    (M) — Week 1
-  P0 Bug: Fix syntax highlighting cutoff            (S) — Week 1
-  P0 Bug: Fix color accessibility                   (S) — Week 1
-  Search toggle buttons (verify wiring)             (S) — Week 1
-  Refresh Search button                             (S) — Week 2
-  Collapse All / Expand All                         (S) — Week 2
-  Keyboard shortcuts                                (M) — Week 2-3
+Phase 1 — Fix what's broken (Alpha):                    ALL DONE ✅
+  P0 Bug: Fix scroll performance              ✅    (M)
+  P0 Bug: Fix syntax highlighting             ✅    (S)
+  P0 Bug: Fix color accessibility             ✅    (S)
+  Search toggle buttons                       ✅    (S)
+  Refresh Search button                       ✅    (S)
+  Collapse All / Expand All                   ✅    (S)
+  Keyboard shortcuts                          ✅    (M)
 
 Phase 2 — Replace workflow + polish (Beta):
-  Replace All button                          ✅     (L) — Done
-  Replace: Preserve Case                            (M) — Week 5
-  Replace Preview (inline diff)               ✅     (M) — Done
-  Panel resizing (draggable divider)                (M) — Week 6
-  Search result text truncation                     (S) — Week 6
-  Fuzzy finding (cross-channel)                     (M) — Week 6-7
-  View as Tree toggle                               (L) — Week 7
-  History / Recently Opened               ✅         (M) — Done
-  Close Project                            ✅        (S) — Done
-  UI polish pass                                    (M) — Week 8
-  Menu bar                                 ✅        (M) — Done
-  Sidebar icons                                     (S) — Week 8
-  Monokai Pro theme + theming system                (L) — Week 9
-  Custom themed title bar                    ✅      (M) — Done
-  Preview pane zoom (Cmd+/Cmd-)              ✅     (S) — Done
-  Word wrap toggle                                  (M) — Week 10
-  Go to line (Cmd+G)                         ✅     (S) — Done
-  Find in preview (Cmd+F)                           (M) — Week 10-11
-  Design system & consistency                       (L) — Week 11-12
+  Replace All button                          ✅    (L)
+  Replace: Preserve Case                      ✅    (M)
+  Replace Preview (inline diff)               ✅    (M)
+  Panel resizing (draggable divider)          ✅    (M)
+  Search result text truncation               ✅    (S)
+  View as Tree toggle                         ✅    (L)
+  History / Recently Opened                   ✅    (M)
+  Close Project                               ✅    (S)
+  Menu bar                                    ✅    (M)
+  Sidebar icons                               ✅    (S)
+  Custom themed title bar                     ✅    (M)
+  Preview pane zoom (Cmd+/Cmd-)               ✅    (S)
+  Word wrap toggle                            ✅    (M)
+  Go to line (Cmd+G)                          ✅    (S)
+  Find in preview (Cmd+F)                     ✅    (M)
+  Line numbers toggle                         ✅    (S)  — NEW
+  Indent guides toggle                        ✅    (S)  — NEW
+  Editor configuration (View menu)            ✅    (S)  — NEW
+  Tree-sitter syntax highlighting             ✅    (L)  — moved from Phase 4
+  Text selection, copy, find-in-preview       ✅    (L)  — moved from Phase 4
+  -- remaining --
+  Fuzzy finding (cross-channel)                     (M)
+  UI polish pass                                    (M)
+  Theming system + Monokai Pro                      (L)
+  Split "Open In" button                            (M)
+  Design system & consistency                       (L)
 
 Phase 3 — Ship v1.0:
-  Test suite                                        (L) — Week 9-10
-  App logo & icon                                   (S) — Week 10
-  Release pipeline                                  (M) — Week 10-11
-  GitHub Pages website                              (M) — Week 11
+  Test suite                                  ✅    (L)  — 130 tests, 84.6% coverage
+  App logo & icon                                   (S)
+  Release pipeline                                  (M)
+  GitHub Pages website                              (M)
 
 Phase 4 — Post-launch:
-  Tree-sitter syntax highlighting                   (L)
   Settings UI                                       (L)
   Multi-root workspace                              (L)
   Search history                                    (M)
+  Context lines                                     (M)
   New channels                                      (XL)
 ```
 
@@ -600,20 +516,20 @@ Phase 4 — Post-launch:
 
 ## Release Strategy
 
-**Current stage: Alpha** — functional but has known bugs, internal use only.
+**Current stage: Beta** — core features complete, polish and remaining Beta items in progress.
 
-### Alpha Exit Criteria
+### Alpha Exit Criteria ✅ ALL MET
 - All P0 bugs fixed (scroll, syntax highlighting, accessibility)
 - Search toggles working end-to-end
 - Keyboard shortcuts for core actions
 - Refresh Search and Collapse All buttons
 
-### Beta Entry Criteria
+### Beta Entry Criteria ✅ ALL MET
 - Full replace workflow (Replace All + Preserve Case + inline preview)
 - View as Tree toggle
 - Recently opened folders on welcome screen
 - Menu bar with standard macOS menus
-- UI polish pass complete
+- UI polish pass — ongoing
 
 ### v1.0 Release Criteria
 - Test suite with >80% coverage on core search/replace logic
@@ -680,9 +596,9 @@ The search panel header gets a toolbar row with action buttons, matching VS Code
 
 ### Typography
 - UI text: System font (SF Pro via `".SystemFont"`)
-- Code: `"SF Mono"` (fallback: `"Menlo"`)
-- Result rows: 12px code, 4px vertical padding
-- Line numbers: 11px, right-aligned, min-width 36px
+- Code (preview): `"Menlo"` at configurable size (default 14px, zoom via Cmd+/-)
+- Code (search results): 12px, 4px vertical padding
+- Line numbers: rendered by CodeEditor, scale with zoom
 - File names: 12px semibold
 
 ### Key UI Patterns
