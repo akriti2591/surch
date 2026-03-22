@@ -62,6 +62,7 @@ impl Render for Sidebar {
                 .h(px(32.0))
                 .rounded(px(6.0))
                 .cursor_pointer()
+                .hover(|s| s.bg(SurchTheme::bg_hover()))
                 .child(
                     Icon::new(icon_name.clone())
                         .size_4()

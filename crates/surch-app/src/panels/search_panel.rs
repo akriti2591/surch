@@ -700,9 +700,12 @@ impl SearchPanel {
         if active {
             btn = btn
                 .bg(SurchTheme::toggle_active_bg())
-                .text_color(SurchTheme::text_primary());
+                .text_color(SurchTheme::text_primary())
+                .hover(|s| s.bg(SurchTheme::toggle_active_bg()));
         } else {
-            btn = btn.text_color(SurchTheme::text_secondary());
+            btn = btn
+                .text_color(SurchTheme::text_secondary())
+                .hover(|s| s.bg(SurchTheme::bg_hover()));
         }
         btn.on_click(cx.listener(move |this, _, window, cx| {
             let field = on_toggle(this);
@@ -933,10 +936,10 @@ impl SearchPanel {
     fn render_status_and_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut container = div()
             .px(px(12.0))
-            .py(px(6.0))
+            .py(px(8.0))
             .flex()
             .items_center()
-            .gap(px(6.0))
+            .gap(px(8.0))
             .text_size(px(11.0))
             .text_color(SurchTheme::text_secondary())
             .flex_shrink_0();
@@ -1185,7 +1188,7 @@ impl Render for SearchPanel {
                                         .w_full()
                                         .pl(px(indent))
                                         .pr(px(12.0))
-                                        .py(px(5.0))
+                                        .py(px(4.0))
                                         .flex()
                                         .items_center()
                                         .gap_1()
@@ -1264,7 +1267,7 @@ impl Render for SearchPanel {
                                         .w_full()
                                         .pl(px(indent))
                                         .pr(px(12.0))
-                                        .py(px(5.0))
+                                        .py(px(4.0))
                                         .flex()
                                         .items_center()
                                         .gap_1()
@@ -1419,7 +1422,7 @@ impl Render for SearchPanel {
                     .h(px(28.0))
                     .pl(px(indent))
                     .pr(px(12.0))
-                    .py(px(5.0))
+                    .py(px(4.0))
                     .flex()
                     .items_center()
                     .gap_1()
