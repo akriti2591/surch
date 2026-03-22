@@ -35,11 +35,6 @@ impl SurchTheme {
         hsla(0.58, 0.25, 0.18, 1.0)
     }
 
-    /// Preview focus line highlight
-    pub fn bg_focus_line() -> Hsla {
-        hsla(0.15, 0.40, 0.22, 0.45)
-    }
-
     // === Text ===
 
     /// Main body text

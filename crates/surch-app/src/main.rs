@@ -15,9 +15,98 @@ use assets::SurchAssets;
 use gpui::*;
 use gpui_component::Root;
 
+/// Set up a One Dark-inspired highlight theme for the code editor.
+/// The default gpui-component theme has muted colors — many token types
+/// (variable, punctuation, operator) are undefined and fall back to the
+/// same gray foreground. This provides vibrant, distinct colors.
+fn setup_highlight_theme(cx: &mut App) {
+    use gpui_component::highlighter::{HighlightTheme, HighlightThemeStyle};
+    use gpui_component::{Theme, ThemeMode};
+    use std::sync::Arc;
+
+    let style: HighlightThemeStyle = serde_json::from_value(serde_json::json!({
+        "editor.foreground": "#ABB2BF",
+        "editor.background": "#1a1d23",
+        "editor.active_line.background": "#2c313a",
+        "editor.line_number": "#636D83",
+        "editor.active_line_number": "#ABB2BF",
+        "syntax": {
+            "attribute":              { "color": "#D19A66" },
+            "boolean":                { "color": "#D19A66" },
+            "comment":                { "color": "#7F848E", "font_style": "italic" },
+            "comment_doc":            { "color": "#7F848E", "font_style": "italic" },
+            "constant":               { "color": "#D19A66" },
+            "constructor":            { "color": "#E5C07B" },
+            "embedded":               { "color": "#ABB2BF" },
+            "enum":                   { "color": "#E5C07B" },
+            "function":               { "color": "#61AFEF" },
+            "keyword":                { "color": "#C678DD" },
+            "label":                  { "color": "#E5C07B" },
+            "link_text":              { "color": "#61AFEF" },
+            "link_uri":               { "color": "#98C379", "font_style": "italic" },
+            "number":                 { "color": "#D19A66" },
+            "operator":               { "color": "#56B6C2" },
+            "preproc":                { "color": "#C678DD" },
+            "property":               { "color": "#E06C75" },
+            "punctuation":            { "color": "#ABB2BF" },
+            "punctuation.bracket":    { "color": "#ABB2BF" },
+            "punctuation.delimiter":  { "color": "#ABB2BF" },
+            "punctuation.special":    { "color": "#56B6C2" },
+            "string":                 { "color": "#98C379" },
+            "string.escape":          { "color": "#56B6C2" },
+            "string.regex":           { "color": "#56B6C2" },
+            "string.special":         { "color": "#D19A66" },
+            "string.special.symbol":  { "color": "#D19A66" },
+            "tag":                    { "color": "#E06C75" },
+            "tag.doctype":            { "color": "#C678DD" },
+            "text.literal":           { "color": "#98C379" },
+            "title":                  { "color": "#E5C07B", "font_weight": 700 },
+            "type":                   { "color": "#E5C07B" },
+            "variable":               { "color": "#E06C75" },
+            "variable.special":       { "color": "#E06C75" },
+            "variant":                { "color": "#E5C07B" }
+        }
+    })).expect("one dark theme JSON");
+
+    let highlight_theme = Arc::new(HighlightTheme {
+        name: "One Dark".to_string(),
+        appearance: ThemeMode::Dark,
+        style,
+    });
+
+    Theme::global_mut(cx).highlight_theme = highlight_theme;
+}
+
+/// Fix TSX highlighting: gpui-component ships a 35-line TSX query that only
+/// covers TypeScript-specific additions (types, interfaces). It's missing all
+/// base JavaScript captures (strings, functions, keywords, comments, etc.).
+/// We re-register TSX with the full TypeScript highlights query, which includes
+/// both JS basics and TS additions and works with the TSX grammar.
+fn fix_tsx_highlighting() {
+    use gpui_component::highlighter::{LanguageConfig, LanguageRegistry};
+
+    let registry = LanguageRegistry::singleton();
+    let tsx_config = registry.language("tsx");
+    let ts_config = registry.language("typescript");
+
+    if let (Some(tsx), Some(ts)) = (tsx_config, ts_config) {
+        let fixed = LanguageConfig::new(
+            "tsx",
+            tsx.language.clone(),
+            vec![],
+            &ts.highlights,
+            &tsx.injections,
+            &tsx.locals,
+        );
+        registry.register("tsx", &fixed);
+    }
+}
+
 fn main() {
     Application::new().with_assets(SurchAssets).run(|cx| {
         gpui_component::init(cx);
+        fix_tsx_highlighting();
+        setup_highlight_theme(cx);
 
         // Register keyboard shortcuts
         cx.bind_keys([

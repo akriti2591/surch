@@ -84,7 +84,7 @@ impl SurchApp {
 
         let sidebar = cx.new(|_cx| Sidebar::new(channel_metas));
         let search_panel = cx.new(|cx| SearchPanel::new(input_fields, window, cx));
-        let preview_panel = cx.new(|_cx| PreviewPanel::new());
+        let preview_panel = cx.new(|cx| PreviewPanel::new(window, cx));
 
         let app_config = AppConfig::load();
 
@@ -119,10 +119,10 @@ impl SurchApp {
 
         let app_entity = cx.entity().clone();
         self.search_panel.update(cx, |panel, _cx| {
-            panel.on_result_selected = Some(Box::new(move |result, _window, cx| {
+            panel.on_result_selected = Some(Box::new(move |result, window, cx| {
                 let result = result.clone();
                 app_entity.update(cx, |app, cx| {
-                    app.handle_result_selected(result, cx);
+                    app.handle_result_selected(result, window, cx);
                 });
             }));
         });
@@ -301,7 +301,7 @@ impl SurchApp {
         }
     }
 
-    fn handle_result_selected(&mut self, result: SearchResultItem, cx: &mut Context<Self>) {
+    fn handle_result_selected(&mut self, result: SearchResultItem, window: &mut Window, cx: &mut Context<Self>) {
         self.current_result = Some(result.clone());
 
         let actions = if let Some(channel) = self.registry.active() {
@@ -318,8 +318,8 @@ impl SurchApp {
             Vec::new()
         };
 
-        self.preview_panel.update(cx, |panel, _cx| {
-            panel.load_file(result.file_path.clone(), result.line_number, None);
+        self.preview_panel.update(cx, |panel, cx| {
+            panel.load_file(result.file_path.clone(), result.line_number, None, window, cx);
             panel.set_actions(actions);
         });
 
@@ -530,13 +530,12 @@ impl SurchApp {
         // callback which would re-entrantly update SurchApp → double lease panic.
         let entity = cx.entity().clone();
         window.on_next_frame(move |window, cx| {
-            let _ = window;
             entity.update(cx, |app, cx| {
                 let selected_item = app.search_panel.update(cx, |panel, cx| {
                     panel.select_next_item(cx)
                 });
                 if let Some(result) = selected_item {
-                    app.handle_result_selected(result, cx);
+                    app.handle_result_selected(result, window, cx);
                 }
             });
         });
@@ -551,13 +550,12 @@ impl SurchApp {
         // Defer to next frame — same reason as handle_select_next.
         let entity = cx.entity().clone();
         window.on_next_frame(move |window, cx| {
-            let _ = window;
             entity.update(cx, |app, cx| {
                 let selected_item = app.search_panel.update(cx, |panel, cx| {
                     panel.select_previous_item(cx)
                 });
                 if let Some(result) = selected_item {
-                    app.handle_result_selected(result, cx);
+                    app.handle_result_selected(result, window, cx);
                 }
             });
         });
@@ -597,19 +595,8 @@ impl SurchApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // If find-in-preview bar is active, dismiss it first instead of clearing search
-        let find_was_active = self.preview_panel.update(cx, |panel, _cx| {
-            if panel.find_active {
-                panel.hide_find();
-                true
-            } else {
-                false
-            }
-        });
-        if find_was_active {
-            cx.notify();
-            return;
-        }
+        // Find is now handled by the CodeEditor's built-in search (Cmd+F).
+        // No custom find bar to dismiss.
 
         // Cancel any in-progress search
         if let Some(channel) = self.registry.active() {
