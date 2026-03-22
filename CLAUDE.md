@@ -20,13 +20,13 @@ crates/
 ├── surch-app/              # GPUI desktop application (binary)
 │   ├── assets/icons/        # Lucide SVG icons (embedded via rust_embed)
 │   └── src/
-│       ├── main.rs          # Entry point, window setup, Root wrapper
+│       ├── main.rs          # Entry point, window setup, One Dark theme, TSX fix
 │       ├── app.rs           # Root view orchestrating all panels
 │       ├── assets.rs         # AssetSource impl (rust_embed for SVG icons)
 │       ├── sidebar.rs       # Left icon strip for channel switching
 │       ├── panels/
 │       │   ├── search_panel.rs   # Input fields + virtualized result list
-│       │   └── preview_panel.rs  # File preview with syntax highlighting
+│       │   └── preview_panel.rs  # File preview via CodeEditor (read-only, tree-sitter)
 │       ├── components/      # Reusable UI components (future)
 │       └── theme.rs         # Color palette (One Dark-inspired, WCAG AA)
 ├── surch-core/              # Framework-agnostic core (library)
@@ -59,7 +59,7 @@ Panels communicate via public callback fields (`on_query_changed`, `on_result_se
 
 **Leverage GPUI and gpui-component maximally.** Their code is battle-tested with Zed (a full production editor used by thousands). Before building anything custom, check if GPUI or gpui-component already provides it. Search the crate source in `~/.cargo/registry/src/`. Only go custom when no built-in exists.
 
-**The preview panel is intentionally custom.** It renders syntax-highlighted code using `uniform_list` + `syntect` spans + manual div layout. This is the right approach — gpui-component's `TextView` is Markdown/HTML-first and would add parsing overhead for raw code files. For text selection + copy, look at gpui-component's `Inline` component (`text/inline.rs`) which handles selection and clipboard at the span level. For Markdown file preview (READMEs), consider adopting `TextView` directly.
+**The preview panel uses gpui-component's CodeEditor.** `InputState::new(window, cx).code_editor("text")` provides tree-sitter syntax highlighting, text selection/copy, built-in Cmd+F search, line numbers, and scrolling — all battle-tested from Zed. The editor runs in read-only mode via `Input::new(&state).disabled(true).appearance(false)`. Language detection maps file extensions to tree-sitter language names via `language_for_path()`, then `state.set_highlighter(lang, cx)` switches the parser. This replaced ~680 lines of custom syntect + uniform_list rendering.
 
 ## Performance Rules
 
@@ -70,17 +70,18 @@ Panels communicate via public callback fields (`on_query_changed`, `on_result_se
 - Cancellation via `AtomicBool` checked between files. Parallel walker returns `WalkState::Quit` on cancellation.
 
 ### UI Rendering
-- **Both panels use `uniform_list`** for virtualized rendering — only renders visible items. This is critical for large result sets (1000+ matches) and large files (1000+ lines). Do NOT replace with a naive `for` loop.
+- **Search panel uses `uniform_list`** for virtualized rendering — only renders visible items. This is critical for large result sets (1000+ matches). Do NOT replace with a naive `for` loop.
 - **Search results use a `FlatRow` enum** — file headers and match rows are flattened into a single indexed list so `uniform_list` can address them. `rebuild_flat_rows()` must be called after any mutation to `file_groups` (add result, toggle collapse, clear).
-- **Never clone large data in render methods.** Render methods run every frame. The `uniform_list` closure captures a snapshot of `flat_rows` (cloned once per render) and `highlighted_lines` (shared via `Rc`).
+- **Never clone large data in render methods.** Render methods run every frame. The `uniform_list` closure captures a snapshot of `flat_rows` (cloned once per render).
 - Use `flex_shrink_0()` on fixed-height containers (header, inputs, status bar) to prevent layout jank.
 - Use `overflow_hidden()` on fixed-width panels to prevent width fluctuations.
 
-### Syntax Highlighting
-- Uses `syntect` with a custom **One Dark** theme (`assets/themes/one-dark.tmTheme`). Switched from `base16-ocean.dark` which was too muted/dull.
-- **Use `find_syntax_for_file()`** — it tries filename, then extension, then first-line detection (shebangs). Do NOT use `find_syntax_by_extension()` (fails on compound extensions like `.htmltemplate`).
-- **Append `\n` to each line** before calling `highlight_line()` when using `SyntaxSet::load_defaults_newlines()`. Without the trailing newline, syntect's parser state drifts and highlighting breaks after ~100 lines.
-- Highlighted spans are pre-computed in `load_file()` and stored as `Rc<Vec<Vec<(Hsla, String)>>>` for sharing with the uniform_list render closure.
+### Syntax Highlighting (Tree-sitter via CodeEditor)
+- The preview panel uses gpui-component's `InputState` in `code_editor` mode, which uses **tree-sitter** for AST-based syntax highlighting. This replaced the previous `syntect` (regex/TextMate grammar) approach.
+- A custom **One Dark** highlight theme is set in `setup_highlight_theme()` in `main.rs` via `serde_json::from_value()` into `HighlightThemeStyle`, then assigned to `Theme::global_mut(cx).highlight_theme`. Must be called after `gpui_component::init(cx)`.
+- **TSX fix:** gpui-component ships a 35-line TSX highlights query that's only TypeScript additions (missing JS base captures). `fix_tsx_highlighting()` in `main.rs` re-registers TSX with the full TypeScript query via `LanguageRegistry::register()`.
+- **SyntaxColors serde quirk:** The `comment_doc` field has NO `#[serde(rename)]` — use `"comment_doc"` not `"comment.doc"` in the JSON theme definition. Other dotted fields like `punctuation.bracket` DO have renames.
+- Language detection: `language_for_path()` in `preview_panel.rs` maps 30+ file extensions to tree-sitter language names. Uses exact names from `gpui_component::highlighter::Language` enum (e.g., `"typescript"`, `"tsx"`, `"csharp"`).
 - Preview pane uses **Menlo 14px** — matches VS Code's macOS default. Do not use SF Mono (narrower character width makes indentation look shallow).
 
 ## GPUI Gotchas
@@ -123,31 +124,22 @@ These are hard-won lessons. Read before touching GPUI code:
 
 15. **Arrow keys in single-line Inputs crash GPUI.** gpui-component registers `"up" -> MoveUp` and `"down" -> MoveDown` key bindings in the "Input" context, but single-line Input components do NOT register `.on_action()` handlers for MoveUp/MoveDown (only multi-line inputs do). When an unhandled action propagates through the tree with no handler, GPUI panics inside `do_command_by_selector` (an `extern "C"` macOS callback), causing `panic_cannot_unwind`. **Fix:** Register no-op handlers for `gpui_component::input::{MoveUp, MoveDown}` on the root div via `.on_action()`. This catches the propagated actions and prevents the crash. These imports are aliased as `InputMoveUp`/`InputMoveDown` to avoid naming conflicts.
 
-19. **`uniform_list` scroll position: use content height, not item height.** `UniformListScrollState::last_item_size` stores `item` (the **viewport** size) and `contents` (total content size). To compute the top visible index: `per_item = contents.height / px(item_count)`, then `top_idx = (-scroll_offset.y) / per_item`. Do NOT use `item.height` — that's the viewport height, and dividing by it gives ~0 for most scroll positions. Also, `logical_scroll_top_index()` is gated behind `#[cfg(test)]` / `feature = "test-support"` so you must compute it manually in production code.
+16. **`uniform_list` scroll position: use content height, not item height.** `UniformListScrollState::last_item_size` stores `item` (the **viewport** size) and `contents` (total content size). To compute the top visible index: `per_item = contents.height / px(item_count)`, then `top_idx = (-scroll_offset.y) / per_item`. Do NOT use `item.height` — that's the viewport height, and dividing by it gives ~0 for most scroll positions. Also, `logical_scroll_top_index()` is gated behind `#[cfg(test)]` / `feature = "test-support"` so you must compute it manually in production code.
 
-20. **`on_scroll_wheel` inside `render()` causes double-borrow.** If you add an `on_scroll_wheel` handler to trigger `cx.notify()` for reactive updates (e.g., sticky headers), the handler fires during the same frame while the entity is already borrowed by `render()`. Calling `entity.update(cx, ...)` directly will panic with "cannot read X while it is already being updated". **Fix:** Clone the entity handle and use `cx.defer(move |cx| { entity.update(cx, |_, cx| cx.notify()); })` to defer the notification to the next frame.
+17. **`on_scroll_wheel` inside `render()` causes double-borrow.** If you add an `on_scroll_wheel` handler to trigger `cx.notify()` for reactive updates (e.g., sticky headers), the handler fires during the same frame while the entity is already borrowed by `render()`. Calling `entity.update(cx, ...)` directly will panic with "cannot read X while it is already being updated". **Fix:** Clone the entity handle and use `cx.defer(move |cx| { entity.update(cx, |_, cx| cx.notify()); })` to defer the notification to the next frame.
 
-21. **Cross-panel callbacks can double-borrow the source panel.** When a callback fires from within a child panel's click handler (e.g., `on_close_project` set on SearchPanel), any code in the callback chain that calls `search_panel.read(cx)` or `search_panel.update(cx, ...)` will panic — the SearchPanel is already borrowed by the click handler. **Fix:** Defer the entire callback body (including any reads of the source panel) inside `cx.spawn(async move |_, cx| { ... }).detach()`.
-
-## Syntect Gotchas
-
-16. **Do NOT filter empty spans before storing.** When processing `highlight_line()` output, spans with empty text still carry parser state. Filtering them with `.filter(|(_, text)| !text.is_empty())` causes syntect's parse state to desync, breaking highlighting after ~50-100 lines. Instead, keep all spans in the stored data and skip empty ones only at render time.
-
-17. **Strip `\r` before highlighting.** Windows line endings (`\r\n`) cause `highlight_line()` errors that silently break parser state. Always `trim_end_matches('\r')` before appending `\n` for syntect. On error, push the line as plain text but don't reset the highlighter — let it try to recover.
-
-18. **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
-
-## Future: Tree-sitter for Syntax Highlighting
-
-`syntect` (regex-based, TextMate grammars) works but is line-by-line and can drift on complex files. **Tree-sitter** (C library with Rust bindings via `tree-sitter` crate) is what Zed, Neovim, Helix, and Atom use — it parses into a full AST and supports incremental re-parsing (only re-highlights changed regions). This is a post-v1.0 consideration for better highlighting accuracy and performance on large files. Tree-sitter also provides the AST needed for a future Symbol Search channel (function/class/type definitions for free).
+18. **Cross-panel callbacks can double-borrow the source panel.** When a callback fires from within a child panel's click handler (e.g., `on_close_project` set on SearchPanel), any code in the callback chain that calls `search_panel.read(cx)` or `search_panel.update(cx, ...)` will panic — the SearchPanel is already borrowed by the click handler. **Fix:** Defer the entire callback body (including any reads of the source panel) inside `cx.spawn(async move |_, cx| { ... }).detach()`.
 
 ## Preview Panel Architecture
 
-The preview panel is intentionally custom — `uniform_list` + `syntect` spans + manual div layout. This is correct because:
-- gpui-component's `TextView` is Markdown/HTML-first, not designed for raw code files
-- `Inline` component (inside `TextView`) handles text selection + clipboard at the span level — adopt this for text selection without taking the full `TextView`
-- For Markdown files (README preview), consider using `TextView` directly
-- C++ interop for text editors (e.g., Scintilla) won't work because GPUI owns the Metal rendering surface — can't embed foreign widgets
+The preview panel wraps gpui-component's CodeEditor (`InputState` in `code_editor` mode) in read-only mode. Key design decisions:
+
+- **Read-only via `.disabled(true)`** — blocks edits but preserves selection, copy, and built-in Cmd+F search.
+- **`.appearance(false)`** — removes the Input's default border/background so the parent div controls styling.
+- **`.size_full()` on Input + `.flex().flex_col()` on container** — required for the InputElement's `height: relative(1.)` to resolve correctly. Without this, only one line renders.
+- **Language switching:** `state.set_highlighter(lang, cx)` sets the language name, then `state.set_value(content, window, cx)` triggers `_pending_update = true`. The highlighter is lazily created during the next render cycle via `update_highlighter()`.
+- **Font:** Menlo at configurable size (default 14px, zoom via Cmd+/Cmd-). Set on a parent div wrapping the Input.
+- **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
 
 ## Color Accessibility
 
@@ -167,11 +159,11 @@ Editors are detected by scanning `/Applications` for `.app` bundles, not by `whi
 | Crate | Purpose |
 |---|---|
 | `gpui` 0.2.2 | GPU-accelerated UI framework (Metal on macOS) |
-| `gpui-component` 0.5.1 | Input, scroll, Root, Icon, Spinner components |
+| `gpui-component` 0.5.1 | CodeEditor, Input, scroll, Root, Icon components (with `tree-sitter-languages` feature for syntax highlighting) |
 | `grep` + `grep-regex` + `grep-searcher` | ripgrep's search engine as a library |
 | `ignore` 0.4 | Directory walking with .gitignore, include/exclude globs, parallel walking |
 | `crossbeam-channel` | Background thread → UI communication |
-| `syntect` 5 | Syntax highlighting (One Dark theme) |
+| `serde_json` 1 | One Dark highlight theme deserialization |
 | `rust-embed` 8 | Compile-time asset embedding (SVG icons) |
 | `num_cpus` 1 | CPU count for parallel walker thread pool |
 
