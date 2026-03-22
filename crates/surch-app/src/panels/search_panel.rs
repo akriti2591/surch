@@ -70,6 +70,16 @@ enum FlatRow {
     },
 }
 
+/// One entry in the sticky header stack rendered at the top of the results list.
+struct StickyEntry {
+    name: String,
+    match_count: usize,
+    depth: usize,
+    is_dir: bool,
+    /// Pixel offset to push this header upward during transition.
+    push_up: f32,
+}
+
 pub struct SearchPanel {
     input_fields: Vec<InputFieldSpec>,
     pub(crate) inputs: HashMap<String, Entity<InputState>>,
@@ -404,18 +414,36 @@ impl SearchPanel {
     /// Find the file header info that should be "sticky" at the top of the results list.
     /// Returns None if the first visible row is already a header (no sticky needed).
     /// Returns Some((display_name, match_count, depth, collapsed, is_dir)) if a sticky header should show.
-    fn sticky_header_info(&self) -> Option<(String, usize, usize, bool, bool)> {
+    /// Compute the stack of sticky headers and their push-up offsets.
+    /// Returns (entries, per_item_height_px) or None if no sticky headers needed.
+    fn sticky_headers(&self) -> Option<(Vec<StickyEntry>, f32)> {
         if self.flat_rows.is_empty() {
             return None;
         }
 
-        let top_idx = {
+        let (top_idx, per_item_px, scroll_y_px) = {
             let state = self.results_scroll_handle.0.borrow();
-            state.deferred_scroll_to_item
-                .as_ref()
-                .map(|d| d.item_index)
-                .unwrap_or_else(|| state.base_handle.logical_scroll_top().0)
+            if state.deferred_scroll_to_item.is_some() {
+                return None; // Don't show sticky during animated scrolls
+            }
+            let item_count = self.flat_rows.len();
+            if item_count == 0 {
+                return None;
+            }
+            let item_size = state.last_item_size.as_ref()?;
+            let content_h = item_size.contents.height;
+            // Pixels / Pixels = f32
+            let per_item: f32 = content_h / px(item_count as f32);
+            if per_item <= 0.0 {
+                return None;
+            }
+            let offset = state.base_handle.offset();
+            // offset.y is negative when scrolled down; Pixels - Pixels = Pixels, Pixels / Pixels = f32
+            let scroll_y: f32 = (px(0.0) - offset.y) / px(1.0);
+            let idx = (scroll_y / per_item).floor().max(0.0) as usize;
+            (idx, per_item, scroll_y)
         };
+
         if top_idx >= self.flat_rows.len() {
             return None;
         }
@@ -426,25 +454,87 @@ impl SearchPanel {
             FlatRow::MatchRow { .. } => {}
         }
 
-        // Walk backwards to find the nearest file header (skip directory headers for sticky)
+        // Walk backwards to collect ancestor headers at each depth level.
+        // We want the header stack: e.g., [dir at depth 0, dir at depth 1, file at depth 2]
+        let mut stack: Vec<(usize, StickyEntry)> = Vec::new(); // (row_index, entry)
+        let mut max_depth_seen = usize::MAX; // Track which depths we've already found
+
         for i in (0..top_idx).rev() {
-            match &self.flat_rows[i] {
-                FlatRow::FileHeader { display_name, match_count, depth, collapsed, relative_path, .. } => {
-                    // In flat mode, show the relative path; in tree mode, show the display name
+            let (name, match_count, depth, is_dir) = match &self.flat_rows[i] {
+                FlatRow::FileHeader { display_name, match_count, depth, relative_path, .. } => {
                     let name = if self.view_mode == ViewMode::Flat {
                         relative_path.clone()
                     } else {
                         display_name.clone()
                     };
-                    return Some((name, *match_count, *depth, *collapsed, false));
+                    (name, *match_count, *depth, false)
                 }
-                FlatRow::DirectoryHeader { name, match_count, depth, collapsed, .. } => {
-                    return Some((name.clone(), *match_count, *depth, *collapsed, true));
+                FlatRow::DirectoryHeader { name, match_count, depth, .. } => {
+                    (name.clone(), *match_count, *depth, true)
                 }
-                _ => continue,
+                FlatRow::MatchRow { .. } => continue,
+            };
+
+            // Only keep the first (closest) header at each depth level
+            if depth < max_depth_seen {
+                max_depth_seen = depth;
+                stack.push((i, StickyEntry {
+                    name,
+                    match_count,
+                    depth,
+                    is_dir,
+                    push_up: 0.0,
+                }));
+            }
+
+            // If we've reached depth 0, we have the full stack
+            if depth == 0 {
+                break;
             }
         }
-        None
+
+        if stack.is_empty() {
+            return None;
+        }
+
+        // Reverse so outermost (lowest depth) is first
+        stack.reverse();
+
+        // Compute push-up offset for each sticky entry.
+        // For each entry, find the next header at the same depth after top_idx.
+        // If it's close enough to the sticky area, push the entry upward.
+        let sticky_row_height: f32 = 28.0; // approximate height of a header row in px
+        let _total_sticky_height = stack.len() as f32 * sticky_row_height;
+
+        for (entry_position, (_row_idx, entry)) in stack.iter_mut().enumerate() {
+            let entry_top = entry_position as f32 * sticky_row_height;
+
+            // Find the next header at this depth or shallower
+            for j in top_idx..self.flat_rows.len() {
+                let next_depth = match &self.flat_rows[j] {
+                    FlatRow::FileHeader { depth, .. } => Some(*depth),
+                    FlatRow::DirectoryHeader { depth, .. } => Some(*depth),
+                    _ => None,
+                };
+
+                if let Some(d) = next_depth {
+                    if d <= entry.depth {
+                        // This header would replace our sticky entry
+                        let next_header_y = j as f32 * per_item_px;
+                        let next_pos_in_viewport = next_header_y - scroll_y_px;
+                        let push_boundary = entry_top + sticky_row_height;
+
+                        if next_pos_in_viewport < push_boundary {
+                            entry.push_up = push_boundary - next_pos_in_viewport;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        let entries: Vec<StickyEntry> = stack.into_iter().map(|(_, e)| e).collect();
+        Some((entries, per_item_px))
     }
 
     pub fn set_searching(&mut self, searching: bool) {
@@ -977,8 +1067,8 @@ impl Render for SearchPanel {
             .map(|input| input.read(cx).value().to_string())
             .filter(|s| !s.is_empty());
 
-        // Compute sticky header before building the uniform_list
-        let sticky_header = self.sticky_header_info();
+        // Compute sticky headers before building the uniform_list
+        let sticky_headers = self.sticky_headers();
 
         let results_list = uniform_list("search-results", row_count, {
                 let cx_listener = cx.entity().clone();
@@ -1198,61 +1288,86 @@ impl Render for SearchPanel {
             .flex_1()
             .track_scroll(self.results_scroll_handle.clone());
 
-        // Wrap the results list with a sticky header overlay
+        // Wrap the results list with a sticky header overlay.
+        // on_scroll_wheel triggers cx.notify() so the sticky header recomputes on scroll.
+        let entity_for_scroll = cx.entity().clone();
         let mut results_container = div()
+            .id("results-container")
             .flex_1()
             .flex()
             .flex_col()
             .relative()
             .overflow_hidden()
-            .child(results_list);
+            .child(results_list)
+            .on_scroll_wheel(move |_, _window, cx| {
+                let entity = entity_for_scroll.clone();
+                cx.defer(move |cx| {
+                    entity.update(cx, |_, cx| cx.notify());
+                });
+            });
 
-        if let Some((name, match_count, depth, _collapsed, is_dir)) = sticky_header {
-            let indent = depth as f32 * 16.0 + 12.0;
-            let sticky = div()
+        if let Some((entries, _per_item_px)) = sticky_headers {
+            // Build a clipping container for the sticky stack so push-up animations
+            // don't leak outside the results area.
+            let total_height = entries.len() as f32 * 28.0;
+            let mut sticky_clip = div()
                 .absolute()
                 .top_0()
                 .left_0()
                 .w_full()
-                .pl(px(indent))
-                .pr(px(12.0))
-                .py(px(5.0))
-                .flex()
-                .items_center()
-                .gap_1()
-                .bg(SurchTheme::bg_surface())
-                .border_b_1()
-                .border_color(SurchTheme::bg_hover())
-                .child(
-                    Icon::new(if is_dir {
-                        IconName::FolderOpen
-                    } else {
-                        IconName::File
-                    })
-                    .size_3()
-                    .text_color(SurchTheme::text_secondary()),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(SurchTheme::text_heading())
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .child(name),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(SurchTheme::text_secondary())
-                        .px(px(6.0))
-                        .py(px(1.0))
-                        .rounded(px(8.0))
-                        .bg(SurchTheme::bg_hover())
-                        .child(format!("{}", match_count)),
-                );
-            results_container = results_container.child(sticky);
+                .h(px(total_height))
+                .overflow_hidden();
+
+            for (i, entry) in entries.iter().enumerate() {
+                let y_offset = i as f32 * 28.0 - entry.push_up;
+                let indent = entry.depth as f32 * 16.0 + 12.0;
+                let row = div()
+                    .absolute()
+                    .top(px(y_offset))
+                    .left_0()
+                    .w_full()
+                    .h(px(28.0))
+                    .pl(px(indent))
+                    .pr(px(12.0))
+                    .py(px(5.0))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .bg(SurchTheme::bg_surface())
+                    .border_b_1()
+                    .border_color(SurchTheme::bg_hover())
+                    .child(
+                        Icon::new(if entry.is_dir {
+                            IconName::FolderOpen
+                        } else {
+                            IconName::File
+                        })
+                        .size_3()
+                        .text_color(SurchTheme::text_secondary()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(SurchTheme::text_heading())
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .child(entry.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(SurchTheme::text_secondary())
+                            .px(px(6.0))
+                            .py(px(1.0))
+                            .rounded(px(8.0))
+                            .bg(SurchTheme::bg_hover())
+                            .child(format!("{}", entry.match_count)),
+                    );
+                sticky_clip = sticky_clip.child(row);
+            }
+            results_container = results_container.child(sticky_clip);
         }
 
         panel = panel.child(results_container);

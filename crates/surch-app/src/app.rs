@@ -417,15 +417,16 @@ impl SurchApp {
     }
 
     fn close_project(&mut self, cx: &mut Context<Self>) {
-        // Save workspace state before closing
-        self.save_workspace_state(cx);
-
-        // Defer the actual state change to avoid crashing GPUI
-        // when the view tree changes during click event processing.
+        // Defer everything to avoid crashing GPUI when the view tree
+        // changes during click event processing, and to avoid reading
+        // SearchPanel while it's already borrowed by the click handler.
         let entity = cx.entity().clone();
         cx.spawn(async move |_, cx| {
             let _ = cx.update(|cx| {
                 entity.update(cx, |app, cx| {
+                    // Save workspace state before clearing
+                    app.save_workspace_state(cx);
+
                     // Cancel any in-progress search
                     if let Some(channel) = app.registry.active() {
                         channel.cancel();
