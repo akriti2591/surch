@@ -18,6 +18,8 @@ pub struct PreviewPanel {
     focus_line: Option<usize>,
     actions: Vec<ChannelAction>,
     show_actions_menu: bool,
+    /// The ID of the user's preferred editor for one-click "Open in".
+    preferred_editor: Option<String>,
     font_size: f32,
     word_wrap: bool,
     line_numbers: bool,
@@ -25,6 +27,8 @@ pub struct PreviewPanel {
     go_to_line_active: bool,
     go_to_line_input: Option<Entity<InputState>>,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
+    /// Called when the user picks an editor from the dropdown, so app.rs can persist it.
+    pub on_preferred_editor_changed: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
 }
 
 /// Map a file extension to a tree-sitter language name supported by gpui-component.
@@ -108,6 +112,7 @@ impl PreviewPanel {
             focus_line: None,
             actions: Vec::new(),
             show_actions_menu: false,
+            preferred_editor: None,
             font_size: DEFAULT_FONT_SIZE,
             word_wrap: false,
             line_numbers: true,
@@ -115,7 +120,12 @@ impl PreviewPanel {
             go_to_line_active: false,
             go_to_line_input: None,
             on_action_selected: None,
+            on_preferred_editor_changed: None,
         }
+    }
+
+    pub fn set_preferred_editor(&mut self, editor_id: Option<String>) {
+        self.preferred_editor = editor_id;
     }
 
     pub fn load_file(
@@ -385,34 +395,120 @@ impl PreviewPanel {
             header = header.child(breadcrumb);
         }
 
-        // "Open in" button
+        // "Open in" split button: left = one-click default editor, right = chevron dropdown
         if !self.actions.is_empty() {
-            header = header.child(
-                div()
-                    .id("open-in-button")
-                    .px(px(10.0))
-                    .py(px(4.0))
-                    .rounded(px(4.0))
-                    .cursor_pointer()
-                    .bg(SurchTheme::accent())
-                    .hover(|s| s.bg(SurchTheme::accent_hover()))
-                    .text_size(px(11.0))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(SurchTheme::text_heading())
-                    .flex()
-                    .items_center()
-                    .gap(px(4.0))
-                    .child(
-                        Icon::new(IconName::ExternalLink)
-                            .size_3()
-                            .text_color(SurchTheme::text_heading()),
-                    )
-                    .child("Open in...")
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.show_actions_menu = !this.show_actions_menu;
-                        cx.notify();
-                    })),
-            );
+            // Resolve the default action label
+            let default_action = self
+                .preferred_editor
+                .as_ref()
+                .and_then(|id| self.actions.iter().find(|a| a.id == *id))
+                .or_else(|| self.actions.first());
+
+            let default_label = default_action
+                .map(|a| a.label.clone())
+                .unwrap_or_else(|| "Open in...".to_string());
+            let default_id = default_action.map(|a| a.id.clone());
+
+            if self.actions.len() == 1 {
+                // Single editor: render a simple button, no split needed
+                let action_id = default_id.clone();
+                header = header.child(
+                    div()
+                        .id("open-in-button")
+                        .px(px(10.0))
+                        .py(px(4.0))
+                        .rounded(px(4.0))
+                        .cursor_pointer()
+                        .bg(SurchTheme::accent())
+                        .hover(|s| s.bg(SurchTheme::accent_hover()))
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(SurchTheme::text_heading())
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .child(
+                            Icon::new(IconName::ExternalLink)
+                                .size_3()
+                                .text_color(SurchTheme::text_heading()),
+                        )
+                        .child(default_label)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if let Some(ref id) = action_id {
+                                if let Some(ref handler) = this.on_action_selected {
+                                    handler(id, window, cx);
+                                }
+                            }
+                        })),
+                );
+            } else {
+                // Multiple editors: split button
+                let action_id_for_click = default_id.clone();
+                header = header.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(24.0))
+                        .rounded(px(4.0))
+                        .overflow_hidden()
+                        // Left section: one-click open in default editor
+                        .child(
+                            div()
+                                .id("open-in-default")
+                                .h_full()
+                                .flex()
+                                .items_center()
+                                .pl(px(8.0))
+                                .pr(px(6.0))
+                                .gap(px(4.0))
+                                .bg(SurchTheme::accent())
+                                .hover(|s| s.bg(SurchTheme::accent_hover()))
+                                .cursor_pointer()
+                                .border_r_1()
+                                .border_color(SurchTheme::accent_hover())
+                                .text_size(px(11.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(SurchTheme::text_heading())
+                                .child(
+                                    Icon::new(IconName::ExternalLink)
+                                        .size_3()
+                                        .text_color(SurchTheme::text_heading()),
+                                )
+                                .child(default_label)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.show_actions_menu = false;
+                                    if let Some(ref id) = action_id_for_click {
+                                        if let Some(ref handler) = this.on_action_selected {
+                                            handler(id, window, cx);
+                                        }
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                        // Right section: chevron dropdown
+                        .child(
+                            div()
+                                .id("open-in-chevron")
+                                .h_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .w(px(20.0))
+                                .bg(SurchTheme::accent())
+                                .hover(|s| s.bg(SurchTheme::accent_hover()))
+                                .cursor_pointer()
+                                .child(
+                                    Icon::new(IconName::ChevronDown)
+                                        .size_3()
+                                        .text_color(SurchTheme::text_heading()),
+                                )
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.show_actions_menu = !this.show_actions_menu;
+                                    cx.notify();
+                                })),
+                        ),
+                );
+            }
         }
 
         header
@@ -450,6 +546,11 @@ impl PreviewPanel {
                     .child(label)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.show_actions_menu = false;
+                        // Remember this editor as the preferred one
+                        this.preferred_editor = Some(action_id.clone());
+                        if let Some(ref handler) = this.on_preferred_editor_changed {
+                            handler(&action_id, window, cx);
+                        }
                         if let Some(ref handler) = this.on_action_selected {
                             handler(&action_id, window, cx);
                         }

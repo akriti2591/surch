@@ -8,7 +8,7 @@ mod theme;
 use app::{
     ClearSearch, CloseProject, Copy, Cut, FindInPreview, FocusFind, OpenFolder, OpenInEditor,
     Paste, Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp, ToggleViewMode,
-    GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord,
+    GoToLine, ToggleCaseSensitive, ToggleFuzzy, ToggleRegex, ToggleWholeWord,
     ToggleWordWrap, ToggleLineNumbers, ToggleIndentGuides,
     ZoomIn, ZoomOut, ZoomReset,
 };
@@ -118,6 +118,7 @@ fn main() {
             KeyBinding::new("alt-c", ToggleCaseSensitive, Some("surch")),
             KeyBinding::new("alt-w", ToggleWholeWord, Some("surch")),
             KeyBinding::new("alt-r", ToggleRegex, Some("surch")),
+            KeyBinding::new("alt-f", ToggleFuzzy, Some("surch")),
             KeyBinding::new("cmd-down", SelectNextResult, Some("surch")),
             KeyBinding::new("cmd-up", SelectPreviousResult, Some("surch")),
             KeyBinding::new("down", SelectNextResult, Some("surch")),
@@ -197,6 +198,7 @@ fn main() {
                     MenuItem::action("Toggle Case Sensitive", ToggleCaseSensitive),
                     MenuItem::action("Toggle Whole Word", ToggleWholeWord),
                     MenuItem::action("Toggle Regex", ToggleRegex),
+                    MenuItem::action("Toggle Fuzzy", ToggleFuzzy),
                 ],
             },
         ]);

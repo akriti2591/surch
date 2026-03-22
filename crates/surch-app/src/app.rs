@@ -27,6 +27,7 @@ actions!(
         ToggleCaseSensitive,
         ToggleWholeWord,
         ToggleRegex,
+        ToggleFuzzy,
         ToggleViewMode,
         SelectNextResult,
         SelectPreviousResult,
@@ -130,12 +131,30 @@ impl SurchApp {
             }));
         });
 
+        // Set the preferred editor from config
+        let preferred = self.app_config.preferred_editor.clone();
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.set_preferred_editor(preferred);
+        });
+
         let app_entity = cx.entity().clone();
         self.preview_panel.update(cx, |panel, _cx| {
             panel.on_action_selected = Some(Box::new(move |action_id, _window, cx| {
                 let action_id = action_id.to_string();
                 app_entity.update(cx, |app, cx| {
                     app.handle_action_selected(&action_id, cx);
+                });
+            }));
+        });
+
+        // Persist preferred editor when user picks from dropdown
+        let app_entity = cx.entity().clone();
+        self.preview_panel.update(cx, |panel, _cx| {
+            panel.on_preferred_editor_changed = Some(Box::new(move |editor_id, _window, cx| {
+                let editor_id = editor_id.to_string();
+                app_entity.update(cx, |app, _cx| {
+                    app.app_config.preferred_editor = Some(editor_id);
+                    let _ = app.app_config.save();
                 });
             }));
         });
@@ -209,7 +228,7 @@ impl SurchApp {
             panel.set_searching(true);
         });
 
-        let (case_sensitive, whole_word, is_regex, preserve_case) =
+        let (case_sensitive, whole_word, is_regex, preserve_case, fuzzy) =
             self.search_panel.read(cx).search_options();
 
         let query = ChannelQuery {
@@ -219,6 +238,7 @@ impl SurchApp {
             case_sensitive,
             whole_word,
             preserve_case,
+            fuzzy,
         };
 
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -371,7 +391,7 @@ impl SurchApp {
             return;
         }
 
-        let (case_sensitive, whole_word, is_regex, preserve_case) =
+        let (case_sensitive, whole_word, is_regex, preserve_case, fuzzy) =
             self.search_panel.read(cx).search_options();
 
         let query = ChannelQuery {
@@ -381,6 +401,7 @@ impl SurchApp {
             case_sensitive,
             whole_word,
             preserve_case,
+            fuzzy,
         };
 
         // Cancel any in-progress search before replacing
@@ -517,6 +538,17 @@ impl SurchApp {
     ) {
         self.search_panel.update(cx, |panel, cx| {
             panel.toggle_regex(window, cx);
+        });
+    }
+
+    fn handle_toggle_fuzzy(
+        &mut self,
+        _: &ToggleFuzzy,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_panel.update(cx, |panel, cx| {
+            panel.toggle_fuzzy(window, cx);
         });
     }
 
@@ -749,7 +781,7 @@ impl SurchApp {
         self.search_panel.update(cx, |panel, _cx| {
             panel.set_workspace_root(path);
             // Restore last search options from workspace state
-            panel.restore_options(ws_state.case_sensitive, ws_state.whole_word, ws_state.is_regex, false);
+            panel.restore_options(ws_state.case_sensitive, ws_state.whole_word, ws_state.is_regex, false, ws_state.fuzzy);
         });
         cx.notify();
     }
@@ -757,12 +789,13 @@ impl SurchApp {
     /// Save current workspace state before closing.
     fn save_workspace_state(&self, cx: &mut Context<Self>) {
         if let Some(ref workspace_path) = self.workspace_root {
-            let (case_sensitive, whole_word, is_regex, _preserve_case) =
+            let (case_sensitive, whole_word, is_regex, _preserve_case, fuzzy) =
                 self.search_panel.read(cx).search_options();
             let mut ws_state = WorkspaceState::load(workspace_path);
             ws_state.case_sensitive = case_sensitive;
             ws_state.whole_word = whole_word;
             ws_state.is_regex = is_regex;
+            ws_state.fuzzy = fuzzy;
             // TODO: Save search/replace/filter history when those features land
             let _ = ws_state.save(workspace_path);
         }
@@ -940,6 +973,7 @@ impl SurchApp {
             .on_action(cx.listener(Self::handle_toggle_case))
             .on_action(cx.listener(Self::handle_toggle_word))
             .on_action(cx.listener(Self::handle_toggle_regex))
+            .on_action(cx.listener(Self::handle_toggle_fuzzy))
             .on_action(cx.listener(Self::handle_select_next))
             .on_action(cx.listener(Self::handle_select_previous))
             .on_action(cx.listener(Self::handle_open_in_editor))

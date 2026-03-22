@@ -4,10 +4,12 @@ use grep_searcher::sinks::UTF8;
 use grep_searcher::Searcher;
 use ignore::overrides::OverrideBuilder;
 use ignore::{WalkBuilder, WalkState};
+use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use surch_core::channel::{ChannelQuery, ResultEntry, SearchEvent};
+use surch_core::fuzzy::fuzzy_match;
 
 pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<AtomicBool>) {
     let pattern = query.field("find");
@@ -16,6 +18,11 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
             total_files: 0,
             total_matches: 0,
         });
+        return;
+    }
+
+    if query.fuzzy {
+        run_fuzzy_search(query, tx, cancelled);
         return;
     }
 
@@ -161,6 +168,125 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
                     path.display(),
                     e
                 )));
+            }
+
+            WalkState::Continue
+        })
+    });
+
+    let _ = tx.send(SearchEvent::Complete {
+        total_files: files_searched.load(Ordering::Relaxed),
+        total_matches: total_matches.load(Ordering::Relaxed),
+    });
+}
+
+fn run_fuzzy_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<AtomicBool>) {
+    let pattern = query.field("find").to_string();
+    let case_sensitive = query.case_sensitive;
+
+    let include = query.field("include").to_string();
+    let exclude = query.field("exclude").to_string();
+
+    let mut walk_builder = WalkBuilder::new(&query.workspace_root);
+    walk_builder
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .threads(num_cpus::get().min(12));
+
+    let mut override_builder = OverrideBuilder::new(&query.workspace_root);
+    let mut has_overrides = false;
+
+    if !include.is_empty() {
+        for glob in include.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if override_builder.add(glob).is_ok() {
+                has_overrides = true;
+            }
+        }
+    }
+    if !exclude.is_empty() {
+        for glob in exclude.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            let negated = format!("!{}", glob);
+            if override_builder.add(&negated).is_ok() {
+                has_overrides = true;
+            }
+        }
+    }
+
+    if has_overrides {
+        if let Ok(overrides) = override_builder.build() {
+            walk_builder.overrides(overrides);
+        }
+    }
+
+    let id_counter = Arc::new(AtomicU64::new(0));
+    let files_searched = Arc::new(AtomicUsize::new(0));
+    let total_matches = Arc::new(AtomicUsize::new(0));
+    let pattern = Arc::new(pattern);
+
+    walk_builder.build_parallel().run(|| {
+        let tx = tx.clone();
+        let cancelled = cancelled.clone();
+        let pattern = pattern.clone();
+        let id_counter = id_counter.clone();
+        let files_searched = files_searched.clone();
+        let total_matches = total_matches.clone();
+
+        Box::new(move |entry| {
+            if cancelled.load(Ordering::Relaxed) {
+                return WalkState::Quit;
+            }
+
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+
+            let path = entry.path();
+            if !path.is_file() {
+                return WalkState::Continue;
+            }
+
+            let count = files_searched.fetch_add(1, Ordering::Relaxed);
+            if count % 100 == 0 {
+                let _ = tx.send(SearchEvent::Progress {
+                    files_searched: count,
+                    matches_found: total_matches.load(Ordering::Relaxed),
+                });
+            }
+
+            // Read file and fuzzy match each line
+            let file = match std::fs::File::open(path) {
+                Ok(f) => f,
+                Err(_) => return WalkState::Continue,
+            };
+
+            let reader = std::io::BufReader::new(file);
+            let path_buf = path.to_path_buf();
+
+            for (line_idx, line_result) in reader.lines().enumerate() {
+                if cancelled.load(Ordering::Relaxed) {
+                    return WalkState::Quit;
+                }
+
+                let line = match line_result {
+                    Ok(l) => l,
+                    Err(_) => break, // Binary file or encoding error
+                };
+
+                if let Some(fm) = fuzzy_match(&pattern, &line, case_sensitive) {
+                    let entry = ResultEntry {
+                        id: id_counter.fetch_add(1, Ordering::Relaxed),
+                        file_path: Some(path_buf.clone()),
+                        line_number: Some(line_idx + 1),
+                        column: fm.matched_ranges.first().map(|r| r.start),
+                        line_content: line,
+                        match_ranges: fm.matched_ranges,
+                    };
+
+                    total_matches.fetch_add(1, Ordering::Relaxed);
+                    let _ = tx.send(SearchEvent::Match(entry));
+                }
             }
 
             WalkState::Continue
@@ -333,6 +459,7 @@ mod tests {
             case_sensitive: true,
             whole_word: false,
             preserve_case: false,
+            fuzzy: false,
         }
     }
 

@@ -11,6 +11,9 @@ pub struct AppConfig {
     pub recent_workspaces: Vec<RecentWorkspace>,
     #[serde(default)]
     pub editors: Vec<EditorConfig>,
+    /// The ID of the user's preferred editor for "Open in" (e.g., "cursor", "vscode").
+    #[serde(default)]
+    pub preferred_editor: Option<String>,
 }
 
 /// A recently opened workspace with metadata for the welcome screen.
@@ -101,6 +104,8 @@ pub struct WorkspaceState {
     pub whole_word: bool,
     #[serde(default)]
     pub is_regex: bool,
+    #[serde(default)]
+    pub fuzzy: bool,
 }
 
 impl WorkspaceState {

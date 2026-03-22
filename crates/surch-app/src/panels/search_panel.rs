@@ -95,6 +95,7 @@ pub struct SearchPanel {
     whole_word: bool,
     is_regex: bool,
     preserve_case: bool,
+    fuzzy: bool,
     all_collapsed: bool,
     search_completed: bool,
     view_mode: ViewMode,
@@ -151,6 +152,7 @@ impl SearchPanel {
             whole_word: false,
             is_regex: false,
             preserve_case: false,
+            fuzzy: false,
             all_collapsed: false,
             search_completed: false,
             view_mode: ViewMode::Flat,
@@ -168,8 +170,8 @@ impl SearchPanel {
         self.workspace_root = Some(root);
     }
 
-    pub fn search_options(&self) -> (bool, bool, bool, bool) {
-        (self.case_sensitive, self.whole_word, self.is_regex, self.preserve_case)
+    pub fn search_options(&self) -> (bool, bool, bool, bool, bool) {
+        (self.case_sensitive, self.whole_word, self.is_regex, self.preserve_case, self.fuzzy)
     }
 
     pub fn focus_find(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -194,16 +196,31 @@ impl SearchPanel {
 
     pub fn toggle_regex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.is_regex = !self.is_regex;
+        // Regex and fuzzy are mutually exclusive
+        if self.is_regex && self.fuzzy {
+            self.fuzzy = false;
+        }
+        self.on_input_changed("find", window, cx);
+        cx.notify();
+    }
+
+    pub fn toggle_fuzzy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.fuzzy = !self.fuzzy;
+        // Fuzzy and regex are mutually exclusive
+        if self.fuzzy && self.is_regex {
+            self.is_regex = false;
+        }
         self.on_input_changed("find", window, cx);
         cx.notify();
     }
 
     /// Restore search options from persisted workspace state.
-    pub fn restore_options(&mut self, case_sensitive: bool, whole_word: bool, is_regex: bool, preserve_case: bool) {
+    pub fn restore_options(&mut self, case_sensitive: bool, whole_word: bool, is_regex: bool, preserve_case: bool, fuzzy: bool) {
         self.case_sensitive = case_sensitive;
         self.whole_word = whole_word;
         self.is_regex = is_regex;
         self.preserve_case = preserve_case;
+        self.fuzzy = fuzzy;
     }
 
     /// Returns true if any input field currently has focus.
@@ -666,6 +683,8 @@ impl SearchPanel {
         cx: &mut Context<Self>,
         on_toggle: fn(&mut Self) -> &mut bool,
     ) -> impl IntoElement {
+        let is_fuzzy_toggle = id == "toggle-fuzzy";
+        let is_regex_toggle = id == "toggle-regex";
         let mut btn = div()
             .id(ElementId::Name(id.to_string().into()))
             .w(px(22.0))
@@ -688,6 +707,12 @@ impl SearchPanel {
         btn.on_click(cx.listener(move |this, _, window, cx| {
             let field = on_toggle(this);
             *field = !*field;
+            // Fuzzy and regex are mutually exclusive
+            if is_fuzzy_toggle && this.fuzzy {
+                this.is_regex = false;
+            } else if is_regex_toggle && this.is_regex {
+                this.fuzzy = false;
+            }
             this.on_input_changed("find", window, cx);
             cx.notify();
         }))
@@ -840,6 +865,13 @@ impl SearchPanel {
                         self.is_regex,
                         cx,
                         |s| &mut s.is_regex,
+                    ))
+                    .child(self.render_toggle_button(
+                        "toggle-fuzzy",
+                        "Fz",
+                        self.fuzzy,
+                        cx,
+                        |s| &mut s.fuzzy,
                     )),
             );
         } else if is_replace {

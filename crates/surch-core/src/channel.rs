@@ -35,6 +35,9 @@ pub struct ChannelQuery {
     pub whole_word: bool,
     /// Whether replacement text should preserve the case pattern of the original match.
     pub preserve_case: bool,
+    /// Whether to use fuzzy matching instead of exact/regex matching.
+    /// Mutually exclusive with `is_regex`.
+    pub fuzzy: bool,
 }
 
 impl ChannelQuery {
