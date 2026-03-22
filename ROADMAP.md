@@ -168,7 +168,8 @@ Only three case patterns are detected and preserved: all-lowercase, all-uppercas
 **Complexity:** S
 **Files:** `search_panel.rs`
 
-#### 2.6 UI Polish Pass
+#### 2.6 UI Polish Pass ✅
+**Status:** Implemented — hover states on all interactive elements (sidebar icons, toggle buttons, welcome screen button, recent workspaces), spacing snapped to 4px grid, spacing scale constants added to theme.rs.
 Rework theme colors, spacing, typography, hover states. Key changes:
 - **Hover states:** Ensure all interactive rows have `.hover()` styling.
 - **Spacing:** Consistent padding and margins throughout.
@@ -210,8 +211,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** S
 **Files:** `sidebar.rs`, `surch-file-search/src/lib.rs`
 
-#### 2.11 Fuzzy Finding (Cross-Channel)
-**Status:** Not implemented. All search is currently exact/regex matching.
+#### 2.11 Fuzzy Finding (Cross-Channel) ✅
+**Status:** Implemented — "Fz" toggle button in search toolbar (Alt+F shortcut). Uses `nucleo-matcher` crate (same engine as Helix editor). Characters match in order but not contiguously, with matched ranges highlighted. Mutually exclusive with regex mode. Fuzzy state persists per-workspace. Shared `fuzzy_match()` utility in `surch-core/src/fuzzy.rs` for use by future channels.
 **UX Behavior:** A toggleable "Fuzzy" mode (button in the search toolbar, next to Case/Whole Word/Regex toggles). When enabled, the search query is matched fuzzily — characters must appear in order but not contiguously (e.g., `srchpnl` matches `search_panel`). Matched characters are highlighted individually in the result. Fuzzy mode is mutually exclusive with Regex mode (regex requires exact pattern syntax).
 **Why cross-channel:** Fuzzy finding is useful for every channel — file content, filesystem names, git messages, pod names, etc. It should live in `surch-core` as a shared capability, not be reimplemented per channel.
 **Implementation:**
@@ -224,8 +225,8 @@ Rework theme colors, spacing, typography, hover states. Key changes:
 **Complexity:** M
 **Files:** `surch-core/src/channel.rs`, new `surch-core/src/fuzzy.rs`, `search_panel.rs`, `surch-file-search/src/engine.rs`
 
-#### 2.11b Split "Open In" Button
-**Status:** Not implemented. Currently a single "Open in..." button with dropdown.
+#### 2.11b Split "Open In" Button ✅
+**Status:** Implemented — split button with left half showing preferred editor name for one-click open, right chevron half for dropdown to pick a different editor. Remembers last-used editor in `config.toml`. Falls back to simple button when only one editor is available.
 **UX Behavior:** Replace the single "Open in..." button with a **split button** (dual button) like Cursor's preview panel:
 - **Left half (major):** Shows the default/last-used editor name (e.g., "Cursor") and opens directly on click — no dropdown.
 - **Right half (chevron):** Small dropdown chevron that opens the full editor menu on click.
@@ -480,20 +481,22 @@ Phase 2 — Replace workflow + polish (Beta):
   Editor configuration (View menu)            ✅    (S)  — NEW
   Tree-sitter syntax highlighting             ✅    (L)  — moved from Phase 4
   Text selection, copy, find-in-preview       ✅    (L)  — moved from Phase 4
-  -- remaining --
-  Fuzzy finding (cross-channel)                     (M)
-  UI polish pass                                    (M)
+  Fuzzy finding (cross-channel)               ✅    (M)
+  UI polish pass                              ✅    (M)
+  Split "Open In" button                      ✅    (M)
+  -- deferred to post-v1.0 --
   Theming system + Monokai Pro                      (L)
-  Split "Open In" button                            (M)
   Design system & consistency                       (L)
 
 Phase 3 — Ship v1.0:
-  Test suite                                  ✅    (L)  — 130 tests, 84.6% coverage
+  Test suite                                  ✅    (L)  — 147 tests, 84.6% coverage
   App logo & icon                                   (S)
   Release pipeline                                  (M)
   GitHub Pages website                              (M)
 
 Phase 4 — Post-launch:
+  Theming system + Monokai Pro                      (L)  — moved from Phase 2
+  Design system & consistency                       (L)  — moved from Phase 2
   Settings UI                                       (L)
   Multi-root workspace                              (L)
   Search history                                    (M)
@@ -516,7 +519,7 @@ Phase 4 — Post-launch:
 
 ## Release Strategy
 
-**Current stage: Beta** — core features complete, polish and remaining Beta items in progress.
+**Current stage: Beta (complete)** — all prioritized Beta items done. Theming and design system deferred to post-v1.0. Moving to Phase 3 (v1.0 release).
 
 ### Alpha Exit Criteria ✅ ALL MET
 - All P0 bugs fixed (scroll, syntax highlighting, accessibility)
