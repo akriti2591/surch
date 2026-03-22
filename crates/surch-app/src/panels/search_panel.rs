@@ -415,16 +415,24 @@ impl SearchPanel {
     /// Returns None if the first visible row is already a header (no sticky needed).
     /// Returns Some((display_name, match_count, depth, collapsed, is_dir)) if a sticky header should show.
     /// Compute the stack of sticky headers and their push-up offsets.
-    /// Returns (entries, per_item_height_px) or None if no sticky headers needed.
-    fn sticky_headers(&self) -> Option<(Vec<StickyEntry>, f32)> {
+    ///
+    /// Algorithm (follows VS Code's tree sticky scroll approach):
+    /// 1. Find the first visible row index from scroll offset.
+    /// 2. Walk backwards to collect ancestor headers at each depth level.
+    /// 3. For each sticky entry, find its "last descendant" — the last row
+    ///    before the next header at the same depth or shallower. The bottom
+    ///    of that descendant is the boundary where the sticky entry should
+    ///    start being pushed upward.
+    /// 4. Enforce a max height of 40% of the viewport.
+    fn sticky_headers(&self) -> Option<Vec<StickyEntry>> {
         if self.flat_rows.is_empty() {
             return None;
         }
 
-        let (top_idx, per_item_px, scroll_y_px) = {
+        let (top_idx, per_item_px, scroll_y_px, viewport_h) = {
             let state = self.results_scroll_handle.0.borrow();
             if state.deferred_scroll_to_item.is_some() {
-                return None; // Don't show sticky during animated scrolls
+                return None;
             }
             let item_count = self.flat_rows.len();
             if item_count == 0 {
@@ -432,32 +440,39 @@ impl SearchPanel {
             }
             let item_size = state.last_item_size.as_ref()?;
             let content_h = item_size.contents.height;
-            // Pixels / Pixels = f32
+            let viewport_h: f32 = item_size.item.height / px(1.0);
             let per_item: f32 = content_h / px(item_count as f32);
             if per_item <= 0.0 {
                 return None;
             }
             let offset = state.base_handle.offset();
-            // offset.y is negative when scrolled down; Pixels - Pixels = Pixels, Pixels / Pixels = f32
             let scroll_y: f32 = (px(0.0) - offset.y) / px(1.0);
             let idx = (scroll_y / per_item).floor().max(0.0) as usize;
-            (idx, per_item, scroll_y)
+            (idx, per_item, scroll_y, viewport_h)
         };
 
         if top_idx >= self.flat_rows.len() {
             return None;
         }
 
-        // If the top visible row IS a header, no sticky needed
-        match &self.flat_rows[top_idx] {
-            FlatRow::FileHeader { .. } | FlatRow::DirectoryHeader { .. } => return None,
-            FlatRow::MatchRow { .. } => {}
-        }
+        // Determine the starting depth for the backwards walk.
+        // If top_idx is a header, we don't include it (it's already visible),
+        // but we still need to collect its parent headers as sticky.
+        let start_depth = match &self.flat_rows[top_idx] {
+            FlatRow::FileHeader { depth, .. } => {
+                if *depth == 0 { return None; } // No parents to show
+                *depth // Start looking for ancestors shallower than this
+            }
+            FlatRow::DirectoryHeader { depth, .. } => {
+                if *depth == 0 { return None; }
+                *depth
+            }
+            FlatRow::MatchRow { .. } => usize::MAX, // Collect all ancestors
+        };
 
         // Walk backwards to collect ancestor headers at each depth level.
-        // We want the header stack: e.g., [dir at depth 0, dir at depth 1, file at depth 2]
-        let mut stack: Vec<(usize, StickyEntry)> = Vec::new(); // (row_index, entry)
-        let mut max_depth_seen = usize::MAX; // Track which depths we've already found
+        let mut stack: Vec<(usize, StickyEntry)> = Vec::new();
+        let mut min_depth_seen = start_depth;
 
         for i in (0..top_idx).rev() {
             let (name, match_count, depth, is_dir) = match &self.flat_rows[i] {
@@ -475,9 +490,8 @@ impl SearchPanel {
                 FlatRow::MatchRow { .. } => continue,
             };
 
-            // Only keep the first (closest) header at each depth level
-            if depth < max_depth_seen {
-                max_depth_seen = depth;
+            if depth < min_depth_seen {
+                min_depth_seen = depth;
                 stack.push((i, StickyEntry {
                     name,
                     match_count,
@@ -487,7 +501,6 @@ impl SearchPanel {
                 }));
             }
 
-            // If we've reached depth 0, we have the full stack
             if depth == 0 {
                 break;
             }
@@ -497,44 +510,87 @@ impl SearchPanel {
             return None;
         }
 
-        // Reverse so outermost (lowest depth) is first
+        // Reverse so shallowest depth (outermost ancestor) is first
         stack.reverse();
 
-        // Compute push-up offset for each sticky entry.
-        // For each entry, find the next header at the same depth after top_idx.
-        // If it's close enough to the sticky area, push the entry upward.
-        let sticky_row_height: f32 = 28.0; // approximate height of a header row in px
-        let _total_sticky_height = stack.len() as f32 * sticky_row_height;
+        let sticky_row_height: f32 = 28.0;
+        let max_sticky_height = viewport_h * 0.4;
+        let max_count = 7usize;
 
-        for (entry_position, (_row_idx, entry)) in stack.iter_mut().enumerate() {
+        // Constrain: remove deepest entries until within limits
+        while stack.len() > max_count
+            || (stack.len() as f32 * sticky_row_height) > max_sticky_height
+        {
+            if stack.is_empty() {
+                break;
+            }
+            // Remove the deepest (last) entry
+            stack.pop();
+        }
+
+        if stack.is_empty() {
+            return None;
+        }
+
+        // Compute push-up for each entry using VS Code's approach:
+        // Find the last descendant of each sticky node's subtree.
+        // The boundary is the bottom of that last descendant.
+        for (entry_position, (header_row_idx, entry)) in stack.iter_mut().enumerate() {
             let entry_top = entry_position as f32 * sticky_row_height;
 
-            // Find the next header at this depth or shallower
-            for j in top_idx..self.flat_rows.len() {
-                let next_depth = match &self.flat_rows[j] {
+            // Find the last descendant: scan forward from header_row_idx
+            // until we hit a header at the same depth or shallower.
+            let mut last_descendant_idx = *header_row_idx;
+            for j in (*header_row_idx + 1)..self.flat_rows.len() {
+                let row_depth = match &self.flat_rows[j] {
                     FlatRow::FileHeader { depth, .. } => Some(*depth),
                     FlatRow::DirectoryHeader { depth, .. } => Some(*depth),
-                    _ => None,
+                    FlatRow::MatchRow { depth, .. } => Some(*depth),
                 };
-
-                if let Some(d) = next_depth {
+                if let Some(d) = row_depth {
                     if d <= entry.depth {
-                        // This header would replace our sticky entry
-                        let next_header_y = j as f32 * per_item_px;
-                        let next_pos_in_viewport = next_header_y - scroll_y_px;
-                        let push_boundary = entry_top + sticky_row_height;
-
-                        if next_pos_in_viewport < push_boundary {
-                            entry.push_up = push_boundary - next_pos_in_viewport;
+                        // This row is at the same level or above — not a descendant
+                        match &self.flat_rows[j] {
+                            FlatRow::FileHeader { .. } | FlatRow::DirectoryHeader { .. } => break,
+                            _ => {}
                         }
-                        break;
                     }
                 }
+                last_descendant_idx = j;
+            }
+
+            // Bottom of last descendant in viewport coordinates
+            let last_desc_bottom = (last_descendant_idx + 1) as f32 * per_item_px - scroll_y_px;
+            let sticky_bottom = entry_top + sticky_row_height;
+
+            if last_desc_bottom < sticky_bottom {
+                entry.push_up = sticky_bottom - last_desc_bottom;
             }
         }
 
-        let entries: Vec<StickyEntry> = stack.into_iter().map(|(_, e)| e).collect();
-        Some((entries, per_item_px))
+        // Cascade push-up: when a parent entry is pushed, all deeper entries
+        // below it must be pushed at least as much. E.g., if a depth-0 directory
+        // is being pushed out, the depth-1 dir and depth-2 file under it must
+        // also be pushed out together.
+        for i in 1..stack.len() {
+            let parent_push = stack[i - 1].1.push_up;
+            if stack[i].1.push_up < parent_push {
+                stack[i].1.push_up = parent_push;
+            }
+        }
+
+        // Remove entries that are fully pushed out of view
+        let entries: Vec<StickyEntry> = stack
+            .into_iter()
+            .map(|(_, e)| e)
+            .filter(|e| e.push_up < sticky_row_height)
+            .collect();
+
+        if entries.is_empty() {
+            return None;
+        }
+
+        Some(entries)
     }
 
     pub fn set_searching(&mut self, searching: bool) {
@@ -1225,7 +1281,7 @@ impl Render for SearchPanel {
                                         ),
                                 );
                             }
-                            FlatRow::MatchRow { item, depth } => {
+                            FlatRow::MatchRow { item, .. } => {
                                 let is_selected = selected == Some(item.id);
                                 let item_clone = item.clone();
                                 let line_num = item.line_number;
@@ -1233,7 +1289,9 @@ impl Render for SearchPanel {
                                 let match_ranges = item.match_ranges.clone();
                                 let id = item.id;
                                 let entity = cx_listener.clone();
-                                let indent = *depth as f32 * 16.0 + 12.0;
+                                // Fixed indent for match rows — no tree depth indentation
+                                // to maximize horizontal space for code content
+                                let indent = 28.0_f32;
 
                                 let mut row = div()
                                     .id(ElementId::Name(format!("result-{}", id).into()))
@@ -1306,7 +1364,7 @@ impl Render for SearchPanel {
                 });
             });
 
-        if let Some((entries, _per_item_px)) = sticky_headers {
+        if let Some(entries) = sticky_headers {
             // Build a clipping container for the sticky stack so push-up animations
             // don't leak outside the results area.
             let total_height = entries.len() as f32 * 28.0;
