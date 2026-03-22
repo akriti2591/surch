@@ -19,6 +19,9 @@ pub struct PreviewPanel {
     actions: Vec<ChannelAction>,
     show_actions_menu: bool,
     font_size: f32,
+    word_wrap: bool,
+    line_numbers: bool,
+    indent_guides: bool,
     go_to_line_active: bool,
     go_to_line_input: Option<Entity<InputState>>,
     pub on_action_selected: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
@@ -106,6 +109,9 @@ impl PreviewPanel {
             actions: Vec::new(),
             show_actions_menu: false,
             font_size: DEFAULT_FONT_SIZE,
+            word_wrap: false,
+            line_numbers: true,
+            indent_guides: false,
             go_to_line_active: false,
             go_to_line_input: None,
             on_action_selected: None,
@@ -192,6 +198,27 @@ impl PreviewPanel {
 
     pub fn zoom_reset(&mut self) {
         self.font_size = DEFAULT_FONT_SIZE;
+    }
+
+    pub fn toggle_word_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.word_wrap = !self.word_wrap;
+        self.editor_state.update(cx, |state, cx| {
+            state.set_soft_wrap(self.word_wrap, window, cx);
+        });
+    }
+
+    pub fn toggle_line_numbers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.line_numbers = !self.line_numbers;
+        self.editor_state.update(cx, |state, cx| {
+            state.set_line_number(self.line_numbers, window, cx);
+        });
+    }
+
+    pub fn toggle_indent_guides(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.indent_guides = !self.indent_guides;
+        self.editor_state.update(cx, |state, cx| {
+            state.set_indent_guides(self.indent_guides, window, cx);
+        });
     }
 
     pub fn show_go_to_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -9,6 +9,7 @@ use app::{
     ClearSearch, CloseProject, Copy, Cut, FindInPreview, FocusFind, OpenFolder, OpenInEditor,
     Paste, Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp, ToggleViewMode,
     GoToLine, ToggleCaseSensitive, ToggleRegex, ToggleWholeWord,
+    ToggleWordWrap, ToggleLineNumbers, ToggleIndentGuides,
     ZoomIn, ZoomOut, ZoomReset,
 };
 use assets::SurchAssets;
@@ -129,6 +130,7 @@ fn main() {
             KeyBinding::new("cmd-g", GoToLine, Some("surch")),
             KeyBinding::new("cmd-shift-t", ToggleViewMode, Some("surch")),
             KeyBinding::new("cmd-f", FindInPreview, Some("surch")),
+            KeyBinding::new("alt-z", ToggleWordWrap, Some("surch")),
         ]);
 
         // Quit handler at app level
@@ -167,6 +169,10 @@ fn main() {
                 name: "View".into(),
                 items: vec![
                     MenuItem::action("Toggle Tree View", ToggleViewMode),
+                    MenuItem::separator(),
+                    MenuItem::action("Word Wrap", ToggleWordWrap),
+                    MenuItem::action("Line Numbers", ToggleLineNumbers),
+                    MenuItem::action("Indent Guides", ToggleIndentGuides),
                     MenuItem::separator(),
                     MenuItem::action("Zoom In", ZoomIn),
                     MenuItem::action("Zoom Out", ZoomOut),

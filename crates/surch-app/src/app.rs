@@ -36,6 +36,9 @@ actions!(
         ZoomOut,
         ZoomReset,
         GoToLine,
+        ToggleWordWrap,
+        ToggleLineNumbers,
+        ToggleIndentGuides,
         Quit,
         Cut,
         Copy,
@@ -694,6 +697,42 @@ impl SurchApp {
         });
     }
 
+    fn handle_toggle_word_wrap(
+        &mut self,
+        _: &ToggleWordWrap,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, cx| {
+            panel.toggle_word_wrap(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_line_numbers(
+        &mut self,
+        _: &ToggleLineNumbers,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, cx| {
+            panel.toggle_line_numbers(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_indent_guides(
+        &mut self,
+        _: &ToggleIndentGuides,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_panel.update(cx, |panel, cx| {
+            panel.toggle_indent_guides(window, cx);
+        });
+        cx.notify();
+    }
+
     /// Set the active workspace, save to recent history, and load workspace state.
     fn set_workspace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         // Save to recent workspaces
@@ -911,6 +950,9 @@ impl SurchApp {
             .on_action(cx.listener(Self::handle_go_to_line))
             .on_action(cx.listener(Self::handle_toggle_view_mode))
             .on_action(cx.listener(Self::handle_find_in_preview))
+            .on_action(cx.listener(Self::handle_toggle_word_wrap))
+            .on_action(cx.listener(Self::handle_toggle_line_numbers))
+            .on_action(cx.listener(Self::handle_toggle_indent_guides))
             // Catch unhandled MoveUp/MoveDown from single-line Input components.
             // Without these, arrow keys in single-line inputs cause a panic in
             // GPUI's do_command_by_selector (macOS text input callback) because
