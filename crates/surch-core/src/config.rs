@@ -205,7 +205,10 @@ mod tests {
         config.add_recent_workspace(PathBuf::from("/tmp/project-a"));
 
         assert_eq!(config.recent_workspaces.len(), 1);
-        assert_eq!(config.recent_workspaces[0].path, PathBuf::from("/tmp/project-a"));
+        assert_eq!(
+            config.recent_workspaces[0].path,
+            PathBuf::from("/tmp/project-a")
+        );
         assert!(config.recent_workspaces[0].last_opened > 0);
     }
 

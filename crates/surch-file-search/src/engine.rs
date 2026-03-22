@@ -65,14 +65,22 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
     let mut has_overrides = false;
 
     if !include.is_empty() {
-        for glob in include.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for glob in include
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             if override_builder.add(glob).is_ok() {
                 has_overrides = true;
             }
         }
     }
     if !exclude.is_empty() {
-        for glob in exclude.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for glob in exclude
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             let negated = format!("!{}", glob);
             if override_builder.add(&negated).is_ok() {
                 has_overrides = true;
@@ -124,7 +132,7 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
             let count = files_searched.fetch_add(1, Ordering::Relaxed);
 
             // Send progress every 100 files
-            if count % 100 == 0 {
+            if count.is_multiple_of(100) {
                 let _ = tx.send(SearchEvent::Progress {
                     files_searched: count,
                     matches_found: total_matches.load(Ordering::Relaxed),
@@ -144,8 +152,7 @@ pub fn run_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc<A
                     }
 
                     // Find match ranges within the line
-                    let match_ranges =
-                        find_match_ranges(line_content, &pattern, case_sensitive);
+                    let match_ranges = find_match_ranges(line_content, &pattern, case_sensitive);
 
                     let entry = ResultEntry {
                         id: id_counter.fetch_add(1, Ordering::Relaxed),
@@ -198,14 +205,22 @@ fn run_fuzzy_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc
     let mut has_overrides = false;
 
     if !include.is_empty() {
-        for glob in include.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for glob in include
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             if override_builder.add(glob).is_ok() {
                 has_overrides = true;
             }
         }
     }
     if !exclude.is_empty() {
-        for glob in exclude.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for glob in exclude
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             let negated = format!("!{}", glob);
             if override_builder.add(&negated).is_ok() {
                 has_overrides = true;
@@ -248,7 +263,7 @@ fn run_fuzzy_search(query: ChannelQuery, tx: Sender<SearchEvent>, cancelled: Arc
             }
 
             let count = files_searched.fetch_add(1, Ordering::Relaxed);
-            if count % 100 == 0 {
+            if count.is_multiple_of(100) {
                 let _ = tx.send(SearchEvent::Progress {
                     files_searched: count,
                     matches_found: total_matches.load(Ordering::Relaxed),
@@ -318,21 +333,19 @@ pub fn run_replace(
     run_search(query.clone(), search_tx, cancelled_clone);
 
     // Group matches by file
-    let mut file_matches: std::collections::HashMap<PathBuf, Vec<(usize, String, Vec<std::ops::Range<usize>>)>> =
+    type FileMatchEntry = (usize, String, Vec<std::ops::Range<usize>>);
+    let mut file_matches: std::collections::HashMap<PathBuf, Vec<FileMatchEntry>> =
         std::collections::HashMap::new();
 
     for event in search_rx {
         match event {
             SearchEvent::Match(entry) => {
                 if let Some(ref path) = entry.file_path {
-                    file_matches
-                        .entry(path.clone())
-                        .or_default()
-                        .push((
-                            entry.line_number.unwrap_or(0),
-                            entry.line_content.clone(),
-                            entry.match_ranges.clone(),
-                        ));
+                    file_matches.entry(path.clone()).or_default().push((
+                        entry.line_number.unwrap_or(0),
+                        entry.line_content.clone(),
+                        entry.match_ranges.clone(),
+                    ));
                 }
             }
             SearchEvent::Complete { .. } => break,
@@ -504,7 +517,11 @@ mod tests {
     #[test]
     fn test_search_basic() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("test.txt"), "hello world\nfoo bar\nhello again\n").unwrap();
+        fs::write(
+            dir.path().join("test.txt"),
+            "hello world\nfoo bar\nhello again\n",
+        )
+        .unwrap();
 
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -569,7 +586,11 @@ mod tests {
     #[test]
     fn test_search_whole_word() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("test.txt"), "for\nformat\nforever\ntransform\n").unwrap();
+        fs::write(
+            dir.path().join("test.txt"),
+            "for\nformat\nforever\ntransform\n",
+        )
+        .unwrap();
 
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -593,13 +614,20 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut query = make_query(dir.path(), "hello");
-        query.fields.insert("include".to_string(), "*.rs".to_string());
+        query
+            .fields
+            .insert("include".to_string(), "*.rs".to_string());
 
         run_search(query, tx, cancelled);
         let results = collect_results(&rx);
 
         assert_eq!(results.len(), 1);
-        assert!(results[0].file_path.as_ref().unwrap().to_string_lossy().ends_with(".rs"));
+        assert!(results[0]
+            .file_path
+            .as_ref()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with(".rs"));
     }
 
     #[test]
@@ -607,7 +635,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Create many files to ensure search takes time
         for i in 0..50 {
-            fs::write(dir.path().join(format!("file{}.txt", i)), "needle in haystack\n".repeat(100)).unwrap();
+            fs::write(
+                dir.path().join(format!("file{}.txt", i)),
+                "needle in haystack\n".repeat(100),
+            )
+            .unwrap();
         }
 
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -642,7 +674,12 @@ mod tests {
         let results = collect_results(&rx);
 
         assert_eq!(results.len(), 1);
-        assert!(results[0].file_path.as_ref().unwrap().to_string_lossy().contains("visible"));
+        assert!(results[0]
+            .file_path
+            .as_ref()
+            .unwrap()
+            .to_string_lossy()
+            .contains("visible"));
     }
 
     #[test]
@@ -705,13 +742,20 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut query = make_query(dir.path(), "hello");
-        query.fields.insert("exclude".to_string(), "*.log".to_string());
+        query
+            .fields
+            .insert("exclude".to_string(), "*.log".to_string());
 
         run_search(query, tx, cancelled);
         let results = collect_results(&rx);
 
         assert_eq!(results.len(), 1);
-        assert!(results[0].file_path.as_ref().unwrap().to_string_lossy().ends_with(".rs"));
+        assert!(results[0]
+            .file_path
+            .as_ref()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with(".rs"));
     }
 
     #[test]
@@ -728,14 +772,21 @@ mod tests {
         // Should get a Complete event with 0 matches
         let mut got_complete = false;
         for event in rx {
-            if let SearchEvent::Complete { total_files, total_matches } = event {
+            if let SearchEvent::Complete {
+                total_files,
+                total_matches,
+            } = event
+            {
                 assert_eq!(total_files, 0);
                 assert_eq!(total_matches, 0);
                 got_complete = true;
                 break;
             }
         }
-        assert!(got_complete, "Should receive Complete event for empty pattern");
+        assert!(
+            got_complete,
+            "Should receive Complete event for empty pattern"
+        );
     }
 
     #[test]
@@ -779,7 +830,11 @@ mod tests {
     #[test]
     fn test_search_unicode_content() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("unicode.txt"), "こんにちは世界\nrust は素晴らしい\n").unwrap();
+        fs::write(
+            dir.path().join("unicode.txt"),
+            "こんにちは世界\nrust は素晴らしい\n",
+        )
+        .unwrap();
 
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -830,7 +885,11 @@ mod tests {
     #[test]
     fn test_search_result_has_line_numbers() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("test.txt"), "line one\nline two\nline three\n").unwrap();
+        fs::write(
+            dir.path().join("test.txt"),
+            "line one\nline two\nline three\n",
+        )
+        .unwrap();
 
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -949,7 +1008,9 @@ mod tests {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut query = make_query(dir.path(), "foo");
-        query.fields.insert("include".to_string(), "*.rs".to_string());
+        query
+            .fields
+            .insert("include".to_string(), "*.rs".to_string());
 
         let (replacements, files) = run_replace(query, "bar", tx, cancelled);
 
@@ -982,7 +1043,9 @@ mod tests {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut query = make_query(dir.path(), "foo");
-        query.fields.insert("exclude".to_string(), "*.log".to_string());
+        query
+            .fields
+            .insert("exclude".to_string(), "*.log".to_string());
 
         let (replacements, files) = run_replace(query, "qux", tx, cancelled);
 
@@ -1006,7 +1069,9 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut query = make_query(dir.path(), "needle");
-        query.fields.insert("include".to_string(), "*.rs, *.py".to_string());
+        query
+            .fields
+            .insert("include".to_string(), "*.rs, *.py".to_string());
 
         run_search(query, tx, cancelled);
         let results = collect_results(&rx);

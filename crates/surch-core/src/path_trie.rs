@@ -211,10 +211,7 @@ mod tests {
     #[test]
     fn test_build_path_trie_single_segment_path() {
         // A file with no directory path at all
-        let inputs = vec![
-            make_input("Makefile", 0, 1),
-            make_input("README.md", 1, 3),
-        ];
+        let inputs = vec![make_input("Makefile", 0, 1), make_input("README.md", 1, 3)];
         let trie = build_path_trie(&inputs);
 
         assert_eq!(trie.files.len(), 2);

@@ -3,9 +3,9 @@ use crate::panels::search_panel::{SearchPanel, SearchResultItem};
 use crate::sidebar::Sidebar;
 use crate::theme::SurchTheme;
 use crossbeam_channel::{Receiver, TryRecvError};
-use gpui::*;
 use gpui::prelude::FluentBuilder;
-use gpui_component::input::{MoveUp as InputMoveUp, MoveDown as InputMoveDown};
+use gpui::*;
+use gpui_component::input::{MoveDown as InputMoveDown, MoveUp as InputMoveUp};
 use gpui_component::{Icon, IconName};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -75,11 +75,7 @@ impl SurchApp {
         let mut registry = ChannelRegistry::new();
         registry.register(file_search.clone());
 
-        let channel_metas: Vec<_> = registry
-            .channels()
-            .iter()
-            .map(|c| c.metadata())
-            .collect();
+        let channel_metas: Vec<_> = registry.channels().iter().map(|c| c.metadata()).collect();
 
         let input_fields = registry
             .active()
@@ -324,7 +320,12 @@ impl SurchApp {
         }
     }
 
-    fn handle_result_selected(&mut self, result: SearchResultItem, window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_result_selected(
+        &mut self,
+        result: SearchResultItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.current_result = Some(result.clone());
 
         let actions = if let Some(channel) = self.registry.active() {
@@ -342,7 +343,13 @@ impl SurchApp {
         };
 
         self.preview_panel.update(cx, |panel, cx| {
-            panel.load_file(result.file_path.clone(), result.line_number, None, window, cx);
+            panel.load_file(
+                result.file_path.clone(),
+                result.line_number,
+                None,
+                window,
+                cx,
+            );
             panel.set_actions(actions);
         });
 
@@ -417,8 +424,12 @@ impl SurchApp {
 
         std::thread::spawn(move || {
             let (tx, _rx) = crossbeam_channel::unbounded();
-            let (files_modified, replacements_made) =
-                surch_file_search::engine::run_replace(query, &replace_text_clone, tx, cancelled_clone);
+            let (files_modified, replacements_made) = surch_file_search::engine::run_replace(
+                query,
+                &replace_text_clone,
+                tx,
+                cancelled_clone,
+            );
             eprintln!(
                 "Replace all: {} replacements in {} files",
                 replacements_made, files_modified
@@ -566,9 +577,9 @@ impl SurchApp {
         let entity = cx.entity().clone();
         window.on_next_frame(move |window, cx| {
             entity.update(cx, |app, cx| {
-                let selected_item = app.search_panel.update(cx, |panel, cx| {
-                    panel.select_next_item(cx)
-                });
+                let selected_item = app
+                    .search_panel
+                    .update(cx, |panel, cx| panel.select_next_item(cx));
                 if let Some(result) = selected_item {
                     app.handle_result_selected(result, window, cx);
                 }
@@ -586,9 +597,9 @@ impl SurchApp {
         let entity = cx.entity().clone();
         window.on_next_frame(move |window, cx| {
             entity.update(cx, |app, cx| {
-                let selected_item = app.search_panel.update(cx, |panel, cx| {
-                    panel.select_previous_item(cx)
-                });
+                let selected_item = app
+                    .search_panel
+                    .update(cx, |panel, cx| panel.select_previous_item(cx));
                 if let Some(result) = selected_item {
                     app.handle_result_selected(result, window, cx);
                 }
@@ -659,48 +670,28 @@ impl SurchApp {
         .detach();
     }
 
-    fn handle_zoom_in(
-        &mut self,
-        _: &ZoomIn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_zoom_in(&mut self, _: &ZoomIn, _window: &mut Window, cx: &mut Context<Self>) {
         self.preview_panel.update(cx, |panel, _cx| {
             panel.zoom_in();
         });
         cx.notify();
     }
 
-    fn handle_zoom_out(
-        &mut self,
-        _: &ZoomOut,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_zoom_out(&mut self, _: &ZoomOut, _window: &mut Window, cx: &mut Context<Self>) {
         self.preview_panel.update(cx, |panel, _cx| {
             panel.zoom_out();
         });
         cx.notify();
     }
 
-    fn handle_zoom_reset(
-        &mut self,
-        _: &ZoomReset,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_zoom_reset(&mut self, _: &ZoomReset, _window: &mut Window, cx: &mut Context<Self>) {
         self.preview_panel.update(cx, |panel, _cx| {
             panel.zoom_reset();
         });
         cx.notify();
     }
 
-    fn handle_go_to_line(
-        &mut self,
-        _: &GoToLine,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_go_to_line(&mut self, _: &GoToLine, window: &mut Window, cx: &mut Context<Self>) {
         self.preview_panel.update(cx, |panel, cx| {
             panel.show_go_to_line(window, cx);
         });
@@ -781,7 +772,13 @@ impl SurchApp {
         self.search_panel.update(cx, |panel, _cx| {
             panel.set_workspace_root(path);
             // Restore last search options from workspace state
-            panel.restore_options(ws_state.case_sensitive, ws_state.whole_word, ws_state.is_regex, false, ws_state.fuzzy);
+            panel.restore_options(
+                ws_state.case_sensitive,
+                ws_state.whole_word,
+                ws_state.is_regex,
+                false,
+                ws_state.fuzzy,
+            );
         });
         cx.notify();
     }
@@ -806,11 +803,7 @@ impl SurchApp {
             return None;
         }
 
-        let mut list = div()
-            .mt(px(24.0))
-            .w(px(320.0))
-            .flex()
-            .flex_col();
+        let mut list = div().mt(px(24.0)).w(px(320.0)).flex().flex_col();
 
         list = list.child(
             div()
@@ -898,9 +891,7 @@ impl SurchApp {
 
             if let Ok(output) = output {
                 if output.status.success() {
-                    let path_str = String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .to_string();
+                    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !path_str.is_empty() {
                         let path = PathBuf::from(&path_str);
                         let _ = cx.update(|cx| {
@@ -1014,13 +1005,11 @@ impl Render for SurchApp {
                         .items_center()
                         .justify_center()
                         .child(
-                            div()
-                                .mb(px(4.0))
-                                .child(
-                                    Icon::new(IconName::Search)
-                                        .size(px(48.0))
-                                        .text_color(SurchTheme::text_muted()),
-                                ),
+                            div().mb(px(4.0)).child(
+                                Icon::new(IconName::Search)
+                                    .size(px(48.0))
+                                    .text_color(SurchTheme::text_muted()),
+                            ),
                         )
                         .child(
                             div()
@@ -1077,7 +1066,8 @@ impl Render for SurchApp {
         let panel_width = self.search_panel_width;
         let is_dragging = self.divider_drag_start.is_some();
 
-        let mut main_content = self.root_div(cx)
+        let mut main_content = self
+            .root_div(cx)
             .size_full()
             .flex()
             .flex_col()
@@ -1115,10 +1105,9 @@ impl Render for SurchApp {
                                 MouseButton::Left,
                                 cx.listener(move |this, event: &MouseDownEvent, _window, _cx| {
                                     let x: f32 = event.position.x.into();
-                                    this.divider_drag_start =
-                                        Some((x, this.search_panel_width));
+                                    this.divider_drag_start = Some((x, this.search_panel_width));
                                 }),
-                            )
+                            ),
                     )
                     .child(self.preview_panel.clone()),
             );

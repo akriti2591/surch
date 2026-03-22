@@ -10,6 +10,7 @@ const MIN_FONT_SIZE: f32 = 8.0;
 const MAX_FONT_SIZE: f32 = 32.0;
 const FONT_SIZE_STEP: f32 = 2.0;
 
+#[allow(clippy::type_complexity)]
 pub struct PreviewPanel {
     workspace_root: Option<PathBuf>,
     file_path: Option<PathBuf>,
@@ -33,14 +34,8 @@ pub struct PreviewPanel {
 
 /// Map a file extension to a tree-sitter language name supported by gpui-component.
 fn language_for_path(path: &std::path::Path) -> &'static str {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    let filename = path
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
 
     // Check special filenames first
     match filename {
@@ -149,11 +144,7 @@ impl PreviewPanel {
                     // Scroll to focus line (0-based for Position)
                     if focus_line > 0 {
                         let target_line = focus_line.saturating_sub(1) as u32;
-                        state.set_cursor_position(
-                            Position::new(target_line, 0),
-                            window,
-                            cx,
-                        );
+                        state.set_cursor_position(Position::new(target_line, 0), window, cx);
                     }
                 });
 
@@ -183,10 +174,15 @@ impl PreviewPanel {
 
     /// Returns true if any input (go-to-line) currently has focus.
     pub fn any_input_focused(&self, window: &Window, cx: &App) -> bool {
-        let go_to_line_focused = self.go_to_line_input.as_ref().map_or(false, |input| {
-            input.read(cx).focus_handle(cx).is_focused(window)
-        });
-        let editor_focused = self.editor_state.read(cx).focus_handle(cx).is_focused(window);
+        let go_to_line_focused = self
+            .go_to_line_input
+            .as_ref()
+            .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
+        let editor_focused = self
+            .editor_state
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
         go_to_line_focused || editor_focused
     }
 
@@ -236,10 +232,7 @@ impl PreviewPanel {
             return;
         }
 
-        let input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Go to line...")
-        });
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Go to line..."));
 
         cx.subscribe_in(&input, window, {
             move |this: &mut PreviewPanel, _state, event: &InputEvent, window, cx| {
@@ -268,11 +261,7 @@ impl PreviewPanel {
                 // Scroll editor to the target line (0-based)
                 let target = (line.saturating_sub(1)) as u32;
                 self.editor_state.update(cx, |state, cx| {
-                    state.set_cursor_position(
-                        Position::new(target, 0),
-                        window,
-                        cx,
-                    );
+                    state.set_cursor_position(Position::new(target, 0), window, cx);
                 });
             }
         }
@@ -312,13 +301,11 @@ impl PreviewPanel {
             .items_center()
             .justify_center()
             .child(
-                div()
-                    .mb(px(8.0))
-                    .child(
-                        Icon::new(IconName::Search)
-                            .size(px(32.0))
-                            .text_color(SurchTheme::text_muted()),
-                    ),
+                div().mb(px(8.0)).child(
+                    Icon::new(IconName::Search)
+                        .size(px(32.0))
+                        .text_color(SurchTheme::text_muted()),
+                ),
             )
             .child(
                 div()
@@ -343,9 +330,7 @@ impl PreviewPanel {
         // Breadcrumb path
         if let Some(ref file_path) = self.file_path {
             let relative = if let Some(ref root) = self.workspace_root {
-                file_path
-                    .strip_prefix(root)
-                    .unwrap_or(file_path)
+                file_path.strip_prefix(root).unwrap_or(file_path)
             } else {
                 file_path.as_path()
             };

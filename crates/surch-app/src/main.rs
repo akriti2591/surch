@@ -6,11 +6,10 @@ mod sidebar;
 mod theme;
 
 use app::{
-    ClearSearch, CloseProject, Copy, Cut, FindInPreview, FocusFind, OpenFolder, OpenInEditor,
-    Paste, Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp, ToggleViewMode,
-    GoToLine, ToggleCaseSensitive, ToggleFuzzy, ToggleRegex, ToggleWholeWord,
-    ToggleWordWrap, ToggleLineNumbers, ToggleIndentGuides,
-    ZoomIn, ZoomOut, ZoomReset,
+    ClearSearch, CloseProject, Copy, Cut, FindInPreview, FocusFind, GoToLine, OpenFolder,
+    OpenInEditor, Paste, Quit, SelectAll, SelectNextResult, SelectPreviousResult, SurchApp,
+    ToggleCaseSensitive, ToggleFuzzy, ToggleIndentGuides, ToggleLineNumbers, ToggleRegex,
+    ToggleViewMode, ToggleWholeWord, ToggleWordWrap, ZoomIn, ZoomOut, ZoomReset,
 };
 use assets::SurchAssets;
 use gpui::*;
@@ -67,7 +66,8 @@ fn setup_highlight_theme(cx: &mut App) {
             "variable.special":       { "color": "#E06C75" },
             "variant":                { "color": "#E5C07B" }
         }
-    })).expect("one dark theme JSON");
+    }))
+    .expect("one dark theme JSON");
 
     let highlight_theme = Arc::new(HighlightTheme {
         name: "One Dark".to_string(),
@@ -213,7 +213,6 @@ fn main() {
                 title: Some("Surch".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(9.0), px(9.0))),
-                ..Default::default()
             }),
             ..Default::default()
         };

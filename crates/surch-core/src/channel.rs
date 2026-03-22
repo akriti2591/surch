@@ -58,9 +58,15 @@ pub fn apply_case_pattern(original: &str, replacement: &str) -> String {
         return replacement.to_string();
     }
 
-    if original.chars().all(|c| c.is_lowercase() || !c.is_alphabetic()) {
+    if original
+        .chars()
+        .all(|c| c.is_lowercase() || !c.is_alphabetic())
+    {
         replacement.to_lowercase()
-    } else if original.chars().all(|c| c.is_uppercase() || !c.is_alphabetic()) {
+    } else if original
+        .chars()
+        .all(|c| c.is_uppercase() || !c.is_alphabetic())
+    {
         replacement.to_uppercase()
     } else if is_title_case(original) {
         let mut chars = replacement.chars();
@@ -220,9 +226,7 @@ mod tests {
         let text = PreviewContent::Text("hello".to_string());
         assert!(matches!(text, PreviewContent::Text(_)));
 
-        let kv = PreviewContent::KeyValue(vec![
-            ("key".to_string(), "value".to_string()),
-        ]);
+        let kv = PreviewContent::KeyValue(vec![("key".to_string(), "value".to_string())]);
         assert!(matches!(kv, PreviewContent::KeyValue(_)));
 
         let none = PreviewContent::None;

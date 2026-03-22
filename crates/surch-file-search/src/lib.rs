@@ -12,6 +12,12 @@ pub struct FileSearchChannel {
     cancelled: Arc<AtomicBool>,
 }
 
+impl Default for FileSearchChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSearchChannel {
     pub fn new() -> Self {
         Self {
@@ -118,9 +124,7 @@ impl Channel for FileSearchChannel {
             PreviewContent::Code {
                 path: path.clone(),
                 focus_line: entry.line_number.unwrap_or(1),
-                language: path
-                    .extension()
-                    .map(|e| e.to_string_lossy().to_string()),
+                language: path.extension().map(|e| e.to_string_lossy().to_string()),
             }
         } else {
             PreviewContent::None
@@ -145,7 +149,11 @@ impl Channel for FileSearchChannel {
         }
 
         if action_id == "open_in_textedit" {
-            Command::new("open").arg("-a").arg("TextEdit").arg(file).spawn()?;
+            Command::new("open")
+                .arg("-a")
+                .arg("TextEdit")
+                .arg(file)
+                .spawn()?;
             return Ok(());
         }
 
@@ -160,7 +168,8 @@ impl Channel for FileSearchChannel {
                     .spawn()
                     .or_else(|_| {
                         Command::new("open")
-                            .arg("-a").arg("Cursor")
+                            .arg("-a")
+                            .arg("Cursor")
                             .arg(file)
                             .spawn()
                     })?;
@@ -172,7 +181,8 @@ impl Channel for FileSearchChannel {
                     .spawn()
                     .or_else(|_| {
                         Command::new("open")
-                            .arg("-a").arg("Visual Studio Code")
+                            .arg("-a")
+                            .arg("Visual Studio Code")
                             .arg(file)
                             .spawn()
                     })?;
@@ -184,7 +194,8 @@ impl Channel for FileSearchChannel {
                     .spawn()
                     .or_else(|_| {
                         Command::new("open")
-                            .arg("-a").arg("VSCodium")
+                            .arg("-a")
+                            .arg("VSCodium")
                             .arg(file)
                             .spawn()
                     })?;
@@ -193,12 +204,7 @@ impl Channel for FileSearchChannel {
                 Command::new("zed")
                     .arg(format!("{}:{}", file_str, line))
                     .spawn()
-                    .or_else(|_| {
-                        Command::new("open")
-                            .arg("-a").arg("Zed")
-                            .arg(file)
-                            .spawn()
-                    })?;
+                    .or_else(|_| Command::new("open").arg("-a").arg("Zed").arg(file).spawn())?;
             }
             "open_in_subl" => {
                 Command::new("subl")
@@ -206,7 +212,8 @@ impl Channel for FileSearchChannel {
                     .spawn()
                     .or_else(|_| {
                         Command::new("open")
-                            .arg("-a").arg("Sublime Text")
+                            .arg("-a")
+                            .arg("Sublime Text")
                             .arg(file)
                             .spawn()
                     })?;
@@ -261,7 +268,11 @@ mod tests {
         let fields = channel.input_fields();
 
         for field in &fields {
-            assert!(!field.placeholder.is_empty(), "Field {} has no placeholder", field.id);
+            assert!(
+                !field.placeholder.is_empty(),
+                "Field {} has no placeholder",
+                field.id
+            );
         }
     }
 
@@ -279,7 +290,11 @@ mod tests {
 
         let preview = channel.preview(&entry);
         match preview {
-            PreviewContent::Code { path, focus_line, language } => {
+            PreviewContent::Code {
+                path,
+                focus_line,
+                language,
+            } => {
                 assert_eq!(path, PathBuf::from("/tmp/test.rs"));
                 assert_eq!(focus_line, 42);
                 assert_eq!(language, Some("rs".to_string()));
@@ -482,7 +497,11 @@ mod tests {
     #[test]
     fn test_search_end_to_end() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("code.rs"), "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+        fs::write(
+            dir.path().join("code.rs"),
+            "fn main() {\n    println!(\"hello\");\n}\n",
+        )
+        .unwrap();
 
         let channel = FileSearchChannel::new();
         let (tx, rx) = crossbeam_channel::unbounded();

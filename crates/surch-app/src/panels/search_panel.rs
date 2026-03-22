@@ -1,7 +1,7 @@
 use crate::theme::SurchTheme;
-use gpui::*;
 use gpui::prelude::FluentBuilder;
 use gpui::ScrollStrategy;
+use gpui::*;
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::spinner::Spinner;
 use gpui_component::{Icon, IconName, Sizable};
@@ -80,6 +80,7 @@ struct StickyEntry {
     push_up: f32,
 }
 
+#[allow(clippy::type_complexity)]
 pub struct SearchPanel {
     input_fields: Vec<InputFieldSpec>,
     pub(crate) inputs: HashMap<String, Entity<InputState>>,
@@ -105,8 +106,7 @@ pub struct SearchPanel {
     dir_id_to_path: Vec<String>,
     pub on_query_changed:
         Option<Box<dyn Fn(HashMap<String, String>, &mut Window, &mut Context<Self>)>>,
-    pub on_result_selected:
-        Option<Box<dyn Fn(&SearchResultItem, &mut Window, &mut Context<Self>)>>,
+    pub on_result_selected: Option<Box<dyn Fn(&SearchResultItem, &mut Window, &mut Context<Self>)>>,
     pub on_refresh: Option<Box<dyn Fn(&mut Window, &mut Context<Self>)>>,
     pub on_close_project: Option<Box<dyn Fn(&mut Window, &mut Context<Self>)>>,
     pub on_replace_all: Option<Box<dyn Fn(String, &mut Window, &mut Context<Self>)>>,
@@ -171,7 +171,13 @@ impl SearchPanel {
     }
 
     pub fn search_options(&self) -> (bool, bool, bool, bool, bool) {
-        (self.case_sensitive, self.whole_word, self.is_regex, self.preserve_case, self.fuzzy)
+        (
+            self.case_sensitive,
+            self.whole_word,
+            self.is_regex,
+            self.preserve_case,
+            self.fuzzy,
+        )
     }
 
     pub fn focus_find(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -215,7 +221,14 @@ impl SearchPanel {
     }
 
     /// Restore search options from persisted workspace state.
-    pub fn restore_options(&mut self, case_sensitive: bool, whole_word: bool, is_regex: bool, preserve_case: bool, fuzzy: bool) {
+    pub fn restore_options(
+        &mut self,
+        case_sensitive: bool,
+        whole_word: bool,
+        is_regex: bool,
+        preserve_case: bool,
+        fuzzy: bool,
+    ) {
         self.case_sensitive = case_sensitive;
         self.whole_word = whole_word;
         self.is_regex = is_regex;
@@ -225,9 +238,9 @@ impl SearchPanel {
 
     /// Returns true if any input field currently has focus.
     pub fn any_input_focused(&self, window: &Window, cx: &App) -> bool {
-        self.inputs.values().any(|input| {
-            input.read(cx).focus_handle(cx).is_focused(window)
-        })
+        self.inputs
+            .values()
+            .any(|input| input.read(cx).focus_handle(cx).is_focused(window))
     }
 
     /// Toggle between Flat and Tree view modes.
@@ -247,14 +260,17 @@ impl SearchPanel {
         }
 
         let current_idx = self.selected_result.and_then(|selected_id| {
-            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item, .. } if item.id == selected_id))
+            self.flat_rows.iter().position(
+                |row| matches!(row, FlatRow::MatchRow { item, .. } if item.id == selected_id),
+            )
         });
 
         let start = current_idx.map(|i| i + 1).unwrap_or(0);
         for i in start..self.flat_rows.len() {
             if let FlatRow::MatchRow { item, .. } = &self.flat_rows[i] {
                 self.selected_result = Some(item.id);
-                self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
+                self.results_scroll_handle
+                    .scroll_to_item(i, ScrollStrategy::Center);
                 cx.notify();
                 return Some(item.clone());
             }
@@ -270,7 +286,9 @@ impl SearchPanel {
         }
 
         let current_idx = self.selected_result.and_then(|selected_id| {
-            self.flat_rows.iter().position(|row| matches!(row, FlatRow::MatchRow { item, .. } if item.id == selected_id))
+            self.flat_rows.iter().position(
+                |row| matches!(row, FlatRow::MatchRow { item, .. } if item.id == selected_id),
+            )
         });
 
         let end = match current_idx {
@@ -281,7 +299,8 @@ impl SearchPanel {
         for i in (0..end).rev() {
             if let FlatRow::MatchRow { item, .. } = &self.flat_rows[i] {
                 self.selected_result = Some(item.id);
-                self.results_scroll_handle.scroll_to_item(i, ScrollStrategy::Center);
+                self.results_scroll_handle
+                    .scroll_to_item(i, ScrollStrategy::Center);
                 cx.notify();
                 return Some(item.clone());
             }
@@ -477,11 +496,15 @@ impl SearchPanel {
         // but we still need to collect its parent headers as sticky.
         let start_depth = match &self.flat_rows[top_idx] {
             FlatRow::FileHeader { depth, .. } => {
-                if *depth == 0 { return None; } // No parents to show
+                if *depth == 0 {
+                    return None;
+                } // No parents to show
                 *depth // Start looking for ancestors shallower than this
             }
             FlatRow::DirectoryHeader { depth, .. } => {
-                if *depth == 0 { return None; }
+                if *depth == 0 {
+                    return None;
+                }
                 *depth
             }
             FlatRow::MatchRow { .. } => usize::MAX, // Collect all ancestors
@@ -493,7 +516,13 @@ impl SearchPanel {
 
         for i in (0..top_idx).rev() {
             let (name, match_count, depth, is_dir) = match &self.flat_rows[i] {
-                FlatRow::FileHeader { display_name, match_count, depth, relative_path, .. } => {
+                FlatRow::FileHeader {
+                    display_name,
+                    match_count,
+                    depth,
+                    relative_path,
+                    ..
+                } => {
                     let name = if self.view_mode == ViewMode::Flat {
                         relative_path.clone()
                     } else {
@@ -501,21 +530,27 @@ impl SearchPanel {
                     };
                     (name, *match_count, *depth, false)
                 }
-                FlatRow::DirectoryHeader { name, match_count, depth, .. } => {
-                    (name.clone(), *match_count, *depth, true)
-                }
+                FlatRow::DirectoryHeader {
+                    name,
+                    match_count,
+                    depth,
+                    ..
+                } => (name.clone(), *match_count, *depth, true),
                 FlatRow::MatchRow { .. } => continue,
             };
 
             if depth < min_depth_seen {
                 min_depth_seen = depth;
-                stack.push((i, StickyEntry {
-                    name,
-                    match_count,
-                    depth,
-                    is_dir,
-                    push_up: 0.0,
-                }));
+                stack.push((
+                    i,
+                    StickyEntry {
+                        name,
+                        match_count,
+                        depth,
+                        is_dir,
+                        push_up: 0.0,
+                    },
+                ));
             }
 
             if depth == 0 {
@@ -750,7 +785,10 @@ impl SearchPanel {
             .iter()
             .filter_map(|r| {
                 let start = r.start.max(trimmed_start).saturating_sub(trimmed_start);
-                let end = r.end.saturating_sub(trimmed_start).min(display_content.len());
+                let end = r
+                    .end
+                    .saturating_sub(trimmed_start)
+                    .min(display_content.len());
                 if end > start {
                     Some(start..end)
                 } else {
@@ -869,13 +907,11 @@ impl SearchPanel {
                         cx,
                         |s| &mut s.is_regex,
                     ))
-                    .child(self.render_toggle_button(
-                        "toggle-fuzzy",
-                        "Fz",
-                        self.fuzzy,
-                        cx,
-                        |s| &mut s.fuzzy,
-                    )),
+                    .child(
+                        self.render_toggle_button("toggle-fuzzy", "Fz", self.fuzzy, cx, |s| {
+                            &mut s.fuzzy
+                        }),
+                    ),
             );
         } else if is_replace {
             container = container.child(
@@ -926,8 +962,7 @@ impl SearchPanel {
                     ),
             );
         } else {
-            container =
-                container.child(gpui_component::input::Input::new(input).w_full());
+            container = container.child(gpui_component::input::Input::new(input).w_full());
         }
 
         container
@@ -1060,7 +1095,6 @@ impl SearchPanel {
 
         container
     }
-
 }
 
 impl Render for SearchPanel {
@@ -1162,224 +1196,220 @@ impl Render for SearchPanel {
         let sticky_headers = self.sticky_headers();
 
         let results_list = uniform_list("search-results", row_count, {
-                let cx_listener = cx.entity().clone();
-                move |range, _window, _cx| {
-                    let mut items = Vec::new();
-                    for i in range {
-                        let row = &rows_snapshot[i];
-                        match row {
-                            FlatRow::DirectoryHeader {
-                                dir_id,
-                                name,
-                                match_count,
-                                collapsed,
-                                depth,
-                            } => {
-                                let dir_id = *dir_id;
-                                let collapsed = *collapsed;
-                                let depth = *depth;
-                                let entity = cx_listener.clone();
-                                let indent = depth as f32 * 16.0 + 12.0;
-                                items.push(
-                                    div()
-                                        .id(ElementId::Name(
-                                            format!("dir-{}", dir_id).into(),
-                                        ))
-                                        .w_full()
-                                        .pl(px(indent))
-                                        .pr(px(12.0))
-                                        .py(px(4.0))
-                                        .flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .cursor_pointer()
-                                        .bg(SurchTheme::bg_surface())
-                                        .hover(|s| s.bg(SurchTheme::bg_hover()))
-                                        .on_click(move |_, _, cx| {
-                                            entity.update(cx, |this, cx| {
-                                                if dir_id < this.dir_id_to_path.len() {
-                                                    let path = this.dir_id_to_path[dir_id].clone();
-                                                    let entry = this.dir_collapsed.entry(path).or_insert(false);
-                                                    *entry = !*entry;
-                                                }
-                                                this.rebuild_flat_rows();
-                                                cx.notify();
-                                            });
-                                        })
-                                        .child(
-                                            Icon::new(if collapsed {
-                                                IconName::ChevronRight
-                                            } else {
-                                                IconName::ChevronDown
-                                            })
-                                            .size_3()
-                                            .text_color(SurchTheme::text_muted()),
-                                        )
-                                        .child(
-                                            Icon::new(if collapsed {
-                                                IconName::Folder
-                                            } else {
-                                                IconName::FolderOpen
-                                            })
-                                            .size_3()
-                                            .text_color(SurchTheme::text_secondary()),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .text_size(px(12.0))
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(SurchTheme::text_heading())
-                                                .overflow_hidden()
-                                                .whitespace_nowrap()
-                                                .child(name.clone()),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(px(10.0))
-                                                .text_color(SurchTheme::text_secondary())
-                                                .px(px(6.0))
-                                                .py(px(1.0))
-                                                .rounded(px(8.0))
-                                                .bg(SurchTheme::bg_hover())
-                                                .child(format!("{}", match_count)),
-                                        ),
-                                );
-                            }
-                            FlatRow::FileHeader {
-                                group_idx,
-                                display_name,
-                                match_count,
-                                collapsed,
-                                depth,
-                                ..
-                            } => {
-                                let group_idx = *group_idx;
-                                let collapsed = *collapsed;
-                                let depth = *depth;
-                                let entity = cx_listener.clone();
-                                let indent = depth as f32 * 16.0 + 12.0;
-                                items.push(
-                                    div()
-                                        .id(ElementId::Name(
-                                            format!("file-group-{}", group_idx).into(),
-                                        ))
-                                        .w_full()
-                                        .pl(px(indent))
-                                        .pr(px(12.0))
-                                        .py(px(4.0))
-                                        .flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .cursor_pointer()
-                                        .bg(SurchTheme::bg_surface())
-                                        .hover(|s| s.bg(SurchTheme::bg_hover()))
-                                        .on_click(move |_, _, cx| {
-                                            entity.update(cx, |this, cx| {
-                                                if let Some(group) =
-                                                    this.file_groups.get_mut(group_idx)
-                                                {
-                                                    group.collapsed = !group.collapsed;
-                                                }
-                                                this.rebuild_flat_rows();
-                                                cx.notify();
-                                            });
-                                        })
-                                        .child(
-                                            Icon::new(if collapsed {
-                                                IconName::ChevronRight
-                                            } else {
-                                                IconName::ChevronDown
-                                            })
-                                            .size_3()
-                                            .text_color(SurchTheme::text_muted()),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .text_size(px(12.0))
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(SurchTheme::text_heading())
-                                                .overflow_hidden()
-                                                .whitespace_nowrap()
-                                                .child(display_name.clone()),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(px(10.0))
-                                                .text_color(SurchTheme::text_secondary())
-                                                .px(px(6.0))
-                                                .py(px(1.0))
-                                                .rounded(px(8.0))
-                                                .bg(SurchTheme::bg_hover())
-                                                .child(format!("{}", match_count)),
-                                        ),
-                                );
-                            }
-                            FlatRow::MatchRow { item, .. } => {
-                                let is_selected = selected == Some(item.id);
-                                let item_clone = item.clone();
-                                let line_num = item.line_number;
-                                let content = item.line_content.clone();
-                                let match_ranges = item.match_ranges.clone();
-                                let id = item.id;
-                                let entity = cx_listener.clone();
-                                // Fixed indent for match rows — no tree depth indentation
-                                // to maximize horizontal space for code content
-                                let indent = 28.0_f32;
-
-                                let mut row = div()
-                                    .id(ElementId::Name(format!("result-{}", id).into()))
+            let cx_listener = cx.entity().clone();
+            move |range, _window, _cx| {
+                let mut items = Vec::new();
+                for i in range {
+                    let row = &rows_snapshot[i];
+                    match row {
+                        FlatRow::DirectoryHeader {
+                            dir_id,
+                            name,
+                            match_count,
+                            collapsed,
+                            depth,
+                        } => {
+                            let dir_id = *dir_id;
+                            let collapsed = *collapsed;
+                            let depth = *depth;
+                            let entity = cx_listener.clone();
+                            let indent = depth as f32 * 16.0 + 12.0;
+                            items.push(
+                                div()
+                                    .id(ElementId::Name(format!("dir-{}", dir_id).into()))
                                     .w_full()
                                     .pl(px(indent))
                                     .pr(px(12.0))
                                     .py(px(4.0))
                                     .flex()
                                     .items_center()
-                                    .gap(px(8.0))
+                                    .gap_1()
                                     .cursor_pointer()
+                                    .bg(SurchTheme::bg_surface())
                                     .hover(|s| s.bg(SurchTheme::bg_hover()))
-                                    .on_click(move |_, window, cx| {
+                                    .on_click(move |_, _, cx| {
                                         entity.update(cx, |this, cx| {
-                                            this.selected_result = Some(id);
-                                            if let Some(ref handler) = this.on_result_selected {
-                                                handler(&item_clone, window, cx);
+                                            if dir_id < this.dir_id_to_path.len() {
+                                                let path = this.dir_id_to_path[dir_id].clone();
+                                                let entry =
+                                                    this.dir_collapsed.entry(path).or_insert(false);
+                                                *entry = !*entry;
                                             }
+                                            this.rebuild_flat_rows();
                                             cx.notify();
                                         });
                                     })
                                     .child(
-                                        div()
-                                            .text_size(px(11.0))
-                                            .font_family("Menlo")
-                                            .text_color(SurchTheme::text_secondary())
-                                            .min_w(px(36.0))
-                                            .flex()
-                                            .justify_end()
-                                            .child(format!("{}", line_num)),
+                                        Icon::new(if collapsed {
+                                            IconName::ChevronRight
+                                        } else {
+                                            IconName::ChevronDown
+                                        })
+                                        .size_3()
+                                        .text_color(SurchTheme::text_muted()),
                                     )
-                                    .child(SearchPanel::render_highlighted_line(
-                                        &content,
-                                        &match_ranges,
-                                        replace_text.as_deref(),
-                                    ));
+                                    .child(
+                                        Icon::new(if collapsed {
+                                            IconName::Folder
+                                        } else {
+                                            IconName::FolderOpen
+                                        })
+                                        .size_3()
+                                        .text_color(SurchTheme::text_secondary()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .text_size(px(12.0))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(SurchTheme::text_heading())
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .child(name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .text_color(SurchTheme::text_secondary())
+                                            .px(px(6.0))
+                                            .py(px(1.0))
+                                            .rounded(px(8.0))
+                                            .bg(SurchTheme::bg_hover())
+                                            .child(format!("{}", match_count)),
+                                    ),
+                            );
+                        }
+                        FlatRow::FileHeader {
+                            group_idx,
+                            display_name,
+                            match_count,
+                            collapsed,
+                            depth,
+                            ..
+                        } => {
+                            let group_idx = *group_idx;
+                            let collapsed = *collapsed;
+                            let depth = *depth;
+                            let entity = cx_listener.clone();
+                            let indent = depth as f32 * 16.0 + 12.0;
+                            items.push(
+                                div()
+                                    .id(ElementId::Name(format!("file-group-{}", group_idx).into()))
+                                    .w_full()
+                                    .pl(px(indent))
+                                    .pr(px(12.0))
+                                    .py(px(4.0))
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .cursor_pointer()
+                                    .bg(SurchTheme::bg_surface())
+                                    .hover(|s| s.bg(SurchTheme::bg_hover()))
+                                    .on_click(move |_, _, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            if let Some(group) = this.file_groups.get_mut(group_idx)
+                                            {
+                                                group.collapsed = !group.collapsed;
+                                            }
+                                            this.rebuild_flat_rows();
+                                            cx.notify();
+                                        });
+                                    })
+                                    .child(
+                                        Icon::new(if collapsed {
+                                            IconName::ChevronRight
+                                        } else {
+                                            IconName::ChevronDown
+                                        })
+                                        .size_3()
+                                        .text_color(SurchTheme::text_muted()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .text_size(px(12.0))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(SurchTheme::text_heading())
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .child(display_name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .text_color(SurchTheme::text_secondary())
+                                            .px(px(6.0))
+                                            .py(px(1.0))
+                                            .rounded(px(8.0))
+                                            .bg(SurchTheme::bg_hover())
+                                            .child(format!("{}", match_count)),
+                                    ),
+                            );
+                        }
+                        FlatRow::MatchRow { item, .. } => {
+                            let is_selected = selected == Some(item.id);
+                            let item_clone = item.clone();
+                            let line_num = item.line_number;
+                            let content = item.line_content.clone();
+                            let match_ranges = item.match_ranges.clone();
+                            let id = item.id;
+                            let entity = cx_listener.clone();
+                            // Fixed indent for match rows — no tree depth indentation
+                            // to maximize horizontal space for code content
+                            let indent = 28.0_f32;
 
-                                if is_selected {
-                                    row = row
-                                        .bg(SurchTheme::bg_selected())
-                                        .border_l_2()
-                                        .border_color(SurchTheme::accent());
-                                }
+                            let mut row = div()
+                                .id(ElementId::Name(format!("result-{}", id).into()))
+                                .w_full()
+                                .pl(px(indent))
+                                .pr(px(12.0))
+                                .py(px(4.0))
+                                .flex()
+                                .items_center()
+                                .gap(px(8.0))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(SurchTheme::bg_hover()))
+                                .on_click(move |_, window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.selected_result = Some(id);
+                                        if let Some(ref handler) = this.on_result_selected {
+                                            handler(&item_clone, window, cx);
+                                        }
+                                        cx.notify();
+                                    });
+                                })
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .font_family("Menlo")
+                                        .text_color(SurchTheme::text_secondary())
+                                        .min_w(px(36.0))
+                                        .flex()
+                                        .justify_end()
+                                        .child(format!("{}", line_num)),
+                                )
+                                .child(SearchPanel::render_highlighted_line(
+                                    &content,
+                                    &match_ranges,
+                                    replace_text.as_deref(),
+                                ));
 
-                                items.push(row);
+                            if is_selected {
+                                row = row
+                                    .bg(SurchTheme::bg_selected())
+                                    .border_l_2()
+                                    .border_color(SurchTheme::accent());
                             }
+
+                            items.push(row);
                         }
                     }
-                    items
                 }
-            })
-            .flex_1()
-            .track_scroll(self.results_scroll_handle.clone());
+                items
+            }
+        })
+        .flex_1()
+        .track_scroll(self.results_scroll_handle.clone());
 
         // Wrap the results list with a sticky header overlay.
         // on_scroll_wheel triggers cx.notify() so the sticky header recomputes on scroll.
@@ -1468,4 +1498,3 @@ impl Render for SearchPanel {
         panel
     }
 }
-
