@@ -490,10 +490,20 @@ impl Render for PreviewPanel {
         // default border/bg so we control styling from the parent. size_full()
         // ensures the Input fills the flex container so the InputElement's
         // relative(1.) height resolves correctly.
+        //
+        // Input internally sets `.line_height(Rems(1.25))` and
+        // `.input_text_size(size)` on its div, but then applies our Styled
+        // overrides via `.refine_style()` AFTER those defaults. So we can
+        // set `.text_size()` and `.line_height()` directly on the Input to
+        // control font size and line spacing for zoom.
+        let line_h = self.font_size * 1.5;
         let editor = gpui_component::input::Input::new(&self.editor_state)
             .disabled(true)
             .appearance(false)
-            .size_full();
+            .size_full()
+            .font_family("Menlo")
+            .text_size(px(self.font_size))
+            .line_height(px(line_h));
 
         panel = panel.child(
             div()
@@ -501,8 +511,6 @@ impl Render for PreviewPanel {
                 .flex()
                 .flex_col()
                 .overflow_hidden()
-                .font_family("Menlo")
-                .text_size(px(self.font_size))
                 .child(editor),
         );
 
