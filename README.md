@@ -61,7 +61,19 @@ Future channels could search Kubernetes pods, git branches, running processes, A
 - **Xcode** (full install, not just Command Line Tools — required for Metal shader compilation)
 - **Rust** (install via [rustup](https://rustup.rs))
 
-## Getting Started
+## Install
+
+Download the latest `.dmg` from [Releases](https://github.com/akriti2591/surch/releases), open it, and drag **Surch.app** to `/Applications`.
+
+Since the app is not yet code-signed, macOS will block it on first launch. Run this once to fix it:
+
+```sh
+xattr -cr /Applications/Surch.app
+```
+
+Then open Surch normally. On first launch, click **Open Folder** to select a directory to search.
+
+## Build from Source
 
 ```sh
 # Clone the repo
@@ -70,8 +82,6 @@ git clone <repo-url> && cd surch
 # Build and run
 cargo run
 ```
-
-On first launch, click **Open Folder** to select a directory to search.
 
 ## Key Dependencies
 
