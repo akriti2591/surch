@@ -34,6 +34,7 @@ crates/
 │       ├── channel.rs       # Channel trait — the extension interface
 │       ├── registry.rs      # Channel registration + active tracking
 │       ├── workspace.rs     # Workspace/folder types
+│       ├── path_trie.rs     # Trie for tree-view of search results by directory
 │       └── config.rs        # App config (~/.config/surch/)
 └── surch-file-search/       # V1 channel: file content search (library)
     └── src/
@@ -128,7 +129,9 @@ These are hard-won lessons. Read before touching GPUI code:
 
 17. **`on_scroll_wheel` inside `render()` causes double-borrow.** If you add an `on_scroll_wheel` handler to trigger `cx.notify()` for reactive updates (e.g., sticky headers), the handler fires during the same frame while the entity is already borrowed by `render()`. Calling `entity.update(cx, ...)` directly will panic with "cannot read X while it is already being updated". **Fix:** Clone the entity handle and use `cx.defer(move |cx| { entity.update(cx, |_, cx| cx.notify()); })` to defer the notification to the next frame.
 
-18. **Cross-panel callbacks can double-borrow the source panel.** When a callback fires from within a child panel's click handler (e.g., `on_close_project` set on SearchPanel), any code in the callback chain that calls `search_panel.read(cx)` or `search_panel.update(cx, ...)` will panic — the SearchPanel is already borrowed by the click handler. **Fix:** Defer the entire callback body (including any reads of the source panel) inside `cx.spawn(async move |_, cx| { ... }).detach()`.
+18. **Input's `refine_style()` lets you override hardcoded defaults.** The `Input` component's `render()` sets `.line_height(Rems(1.25))` and `.input_text_size(self.size)` on its div, then calls `.refine_style(&self.style)` which merges any styles set via the `Styled` trait on the Input instance. This means `.text_size()`, `.line_height()`, `.font_family()` etc. chained on `Input::new(...)` will override the hardcoded values. Use this for zoom (scaling font + line height together). Do NOT try to control these from a parent div — the Input's own values take precedence over inherited styles.
+
+19. **Cross-panel callbacks can double-borrow the source panel.** When a callback fires from within a child panel's click handler (e.g., `on_close_project` set on SearchPanel), any code in the callback chain that calls `search_panel.read(cx)` or `search_panel.update(cx, ...)` will panic — the SearchPanel is already borrowed by the click handler. **Fix:** Defer the entire callback body (including any reads of the source panel) inside `cx.spawn(async move |_, cx| { ... }).detach()`.
 
 ## Preview Panel Architecture
 
@@ -138,8 +141,10 @@ The preview panel wraps gpui-component's CodeEditor (`InputState` in `code_edito
 - **`.appearance(false)`** — removes the Input's default border/background so the parent div controls styling.
 - **`.size_full()` on Input + `.flex().flex_col()` on container** — required for the InputElement's `height: relative(1.)` to resolve correctly. Without this, only one line renders.
 - **Language switching:** `state.set_highlighter(lang, cx)` sets the language name, then `state.set_value(content, window, cx)` triggers `_pending_update = true`. The highlighter is lazily created during the next render cycle via `update_highlighter()`.
-- **Font:** Menlo at configurable size (default 14px, zoom via Cmd+/Cmd-). Set on a parent div wrapping the Input.
+- **Font & zoom:** Menlo at configurable size (default 14px, zoom via Cmd+/Cmd-). Font size and line height (1.5x font size) are set directly on the `Input` via `.text_size()` and `.line_height()` using the `Styled` trait — Input applies these via `.refine_style()` AFTER its hardcoded defaults, so our values win. Do NOT set font size on a parent div — the Input's `.input_text_size()` would override it.
+- **Editor configuration:** Word wrap, line numbers, and indent guides are toggled via `InputState` methods (`set_soft_wrap`, `set_line_number`, `set_indent_guides`). State tracked on `PreviewPanel` fields, exposed in View menu.
 - **Search result text truncation.** Search result lines should trim leading whitespace before display (show relevant content, not deep indentation). Adjust `match_ranges` byte offsets when trimming so highlights still align correctly.
+- **Find-in-preview search bar:** The CodeEditor's built-in search bar (`.searchable(true)`) uses hardcoded `.small()` on inputs and `.xsmall()` on buttons (absolute rem sizes in gpui-component's `SearchPanel`). There is no public API to customize font size, icon size, or padding. These sizes are set via `input_text_size()` before `refine_style()` on an internal div we don't control.
 
 ## Color Accessibility
 
@@ -166,6 +171,8 @@ Editors are detected by scanning `/Applications` for `.app` bundles, not by `whi
 | `serde_json` 1 | One Dark highlight theme deserialization |
 | `rust-embed` 8 | Compile-time asset embedding (SVG icons) |
 | `num_cpus` 1 | CPU count for parallel walker thread pool |
+| `dirs` 5 | Platform-specific home/config directory paths |
+| `toml` 0.8 | Config file serialization (workspace `serde`) |
 
 ## Pre-flight Checklist
 
@@ -191,6 +198,12 @@ Before submitting any code change, verify these items. Each one has caused bugs 
 ### Modifying uniform_list data
 1. After any mutation to `file_groups` (add, remove, toggle collapse, clear), call `rebuild_flat_rows()`.
 2. Never clone large vecs inside the render closure — snapshot once before the closure, share via `Rc` if needed.
+
+### Adding preview panel editor settings
+1. Add a bool field to `PreviewPanel` and initialize it in `new()`.
+2. Add a `toggle_*()` method that flips the bool and calls the corresponding `InputState` method (e.g., `set_soft_wrap`, `set_line_number`, `set_indent_guides`).
+3. Add the action, handler, key binding, and menu item following the "Adding a new action" checklist above.
+4. The `InputState` methods require `(bool, &mut Window, &mut Context<Self>)` — the handler in `app.rs` must pass `window` through.
 
 ### Adding or changing any feature
 1. Add tests for the new behavior in the relevant crate's `#[cfg(test)]` module.
