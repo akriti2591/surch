@@ -54,6 +54,9 @@ jobs:
           # Copy binary
           cp "target/${{ matrix.target }}/release/surch" "${APP_DIR}/MacOS/surch"
 
+          # Copy app icon
+          cp "crates/surch-app/assets/AppIcon.icns" "${APP_DIR}/Resources/AppIcon.icns"
+
           # Create Info.plist
           VERSION="${GITHUB_REF_NAME#v}"
           cat > "${APP_DIR}/Info.plist" << PLIST
@@ -73,6 +76,8 @@ jobs:
             <string>${VERSION}</string>
             <key>CFBundleExecutable</key>
             <string>surch</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>LSMinimumSystemVersion</key>

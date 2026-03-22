@@ -353,8 +353,8 @@ Ship it. Testing, packaging, branding.
 
 **Remaining gaps:** Editor auto-discovery internals (depends on installed apps, ~64.7% coverage on `lib.rs`). `surch-app` has no tests (GPUI requires GPU context).
 
-#### 3.2 App Logo & Icon
-**Status:** No app icon.
+#### 3.2 App Logo & Icon ✅
+**Status:** Implemented — magnifying glass + "S" motif on dark rounded square. SVG source at `assets/icon.svg`, .icns at `assets/AppIcon.icns`. Referenced in release pipeline's Info.plist via `CFBundleIconFile`.
 **Work:** Design a logo (magnifying glass + "S" motif, matching the dark theme aesthetic). Export as `.icns` for macOS app bundle. Set in build config / `Info.plist`.
 **Complexity:** S
 
@@ -488,11 +488,11 @@ Phase 2 — Replace workflow + polish (Beta):
   Theming system + Monokai Pro                      (L)
   Design system & consistency                       (L)
 
-Phase 3 — Ship v1.0:
+Phase 3 — Ship v1.0:                                 ALL DONE ✅
   Test suite                                  ✅    (L)  — 147 tests, 84.6% coverage
-  App logo & icon                                   (S)
-  Release pipeline                                  (M)
-  GitHub Pages website                              (M)
+  App logo & icon                             ✅    (S)
+  Release pipeline                            ✅    (M)
+  GitHub Pages website                        ✅    (M)
 
 Phase 4 — Post-launch:
   Theming system + Monokai Pro                      (L)  — moved from Phase 2
